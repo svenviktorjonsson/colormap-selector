@@ -3,6 +3,7 @@ Root: C:\Users\viktor.jonsson\OneDrive - CellMax Technologies AB\Documents\Repos
 Relevant files and folders (excluding specified patterns):
 
 .
+├── constants.js
 ├── index.html
 ├── project_content.txt
 ├── script.js
@@ -11,6 +12,42 @@ Relevant files and folders (excluding specified patterns):
 
 
 === File Contents ===
+
+=== constants.js ===
+// constants.js
+
+// --- Colors ---
+// Defines the color palette used for UI elements like borders, text, and selections.
+export const COLOR_SELECTION_BLUE = '#3b82f6';
+export const COLOR_HORIZONTAL_LINE = 'rgba(0, 0, 0, 0.7)';
+export const COLOR_CHECKER_DARK = '#4a5568';
+export const COLOR_CHECKER_LIGHT = '#718096';
+
+// --- Line and Border Widths ---
+// Specifies the thickness of lines and borders for both default and selected states.
+export const LINE_WIDTH_DEFAULT = 2;
+export const LINE_WIDTH_SELECTED = 3;
+export const LINE_WIDTH_HORIZONTAL = 4;
+
+// --- Node (Circle) Properties ---
+// Controls the size of the draggable color nodes and their clickable area.
+export const NODE_RADIUS = 9;
+export const NODE_HIT_RADIUS = 12; // A larger radius to make nodes easier to click.
+
+// --- UI Interaction ---
+// Defines parameters for user interactions like dragging and clicking.
+export const DRAG_THRESHOLD = 5; // The minimum distance (in pixels) the mouse must move to be considered a drag.
+export const LINE_HIT_RADIUS = 8; // The clickable radius around slider lines.
+
+// --- Canvas and Drawing ---
+// General constants related to canvas rendering and layout.
+export const CHECKERBOARD_SIZE = 8; // The size of squares in the background checkerboard pattern.
+export const HS_PLANE_SCALE_FACTOR = 0.9; // The scaling factor for the HS plane to fit within its container.
+
+// --- Dashed Line Style ---
+// Defines the pattern for dashed lines, used for nodes on different planes.
+export const DASHED_LINE_STYLE = [4, 4];
+
 
 === index.html ===
 <!DOCTYPE html>
@@ -54,7 +91,7 @@ Relevant files and folders (excluding specified patterns):
              <div class="text-center w-full">
                  <h3 class="font-medium text-gray-400 text-xs">Colormap</h3>
                  <div class="w-full h-10 rounded-md mt-1 border border-gray-600 relative">
-                      <canvas id="colormap-preview-canvas" class="w-full h-full"></canvas>
+                       <canvas id="colormap-preview-canvas" class="w-full h-full"></canvas>
                  </div>
              </div>
              <div class="text-center">
@@ -72,30 +109,44 @@ Relevant files and folders (excluding specified patterns):
         </div>
     </div>
 
-    <script src="script.js"></script>
+    <!-- The script tag now includes type="module" to allow for imports -->
+    <script type="module" src="script.js"></script>
 </body>
 </html>
+
 
 === project_content.txt ===
 --- CONTENT EXCLUDED (listed in exclude_files) ---
 
 
 === script.js ===
+// script.js
+
+import * as C from './constants.js';
+
 class ColorEditor {
     constructor() {
         // Initializes state with a consistent ID for the first point
         const initialPointId = Date.now();
+        const initialPoint = {
+            id: initialPointId,
+            hsPos: { u: 0, v: 0 },
+            originalHsPos: { u: 0, v: 0 },
+            brightness: 0.5,
+            alpha: 1.0,
+        };
+
         this.state = {
-            points: [{
-                id: initialPointId,
-                hsPos: { u: 0, v: 0 },
-                originalHsPos: { u: 0, v: 0 },
-                brightness: 0.5,
-                alpha: 1.0,
-            }],
-            activePointId: initialPointId,
+            points: [initialPoint],
+            // NEW: Use a Set to store multiple selected point IDs.
+            selectedPointIds: new Set([initialPointId]),
+            // NEW: Track the last selected point to drive the UI readouts.
+            lastSelectedPointId: initialPointId,
             activeDrag: { type: null, element: null, pointId: null },
             transform: { scale: 1, offsetX: 0, offsetY: 0 },
+            // The visual position of the slider lines and HS slice
+            viewBrightness: initialPoint.brightness,
+            viewAlpha: initialPoint.alpha,
         };
 
         this.validPointsCache = null;
@@ -164,14 +215,13 @@ class ColorEditor {
         const hsBgCanvas = this.elements.hsBgCanvas;
         const hsInteractiveCanvas = this.elements.interactiveCanvases['hs'];
         const hsContainer = hsBgCanvas.parentElement;
-        const checkerboardBaseSize = 8;
 
         const containerWidth = hsContainer.clientWidth;
         const containerHeight = hsContainer.clientHeight;
 
         // Calculate the largest square size that is a multiple of the checkerboard size
         let size = Math.min(containerWidth, containerHeight);
-        size = Math.floor(size / checkerboardBaseSize) * checkerboardBaseSize;
+        size = Math.floor(size / C.CHECKERBOARD_SIZE) * C.CHECKERBOARD_SIZE;
 
         // Apply the new square size to the HS canvases
         [hsBgCanvas, hsInteractiveCanvas].forEach(canvas => {
@@ -194,14 +244,43 @@ class ColorEditor {
         this.elements.hsNodesContainer.addEventListener('mousedown', (e) => this.handleMouseDown(e, 'hs'));
         this.elements.brightnessNodesContainer.addEventListener('mousedown', (e) => this.handleMouseDown(e, 'brightness'));
         this.elements.alphaNodesContainer.addEventListener('mousedown', (e) => this.handleMouseDown(e, 'alpha'));
+
+        // Add keydown listener for deleting points
+        document.addEventListener('keydown', (e) => this.handleKeyDown(e));
     }
 
-    getActivePoint() {
-        if (!this.state.points || this.state.points.length === 0) {
-            // This is a safety net for unexpected empty states, though the new constructor prevents this.
-            return { id: 0, hsPos: { u: 0, v: 0 }, originalHsPos: { u: 0, v: 0 }, brightness: 0.5, alpha: 1.0 };
+    handleKeyDown(e) {
+        if (e.key === 'Delete') {
+            // Prevent deleting the last remaining point
+            if (this.state.points.length <= 1) {
+                return;
+            }
+
+            const activeId = this.state.activePointId;
+            const activeIndex = this.state.points.findIndex(p => p.id === activeId);
+
+            if (activeIndex !== -1) {
+                // Remove the point from the state
+                this.state.points.splice(activeIndex, 1);
+
+                // Set a new active point. A sensible default is the one before the
+                // deleted point, or the first point in the array.
+                const newActiveIndex = Math.max(0, activeIndex - 1);
+                this.state.activePointId = this.state.points[newActiveIndex].id;
+
+                // Redraw the entire UI to reflect the change
+                this.drawAll();
+            }
         }
-        return this.state.points.find(p => p.id === this.state.activePointId) || this.state.points[0];
+    }
+
+    getLastSelectedPoint() {
+        if (!this.state.lastSelectedPointId) {
+            // If nothing is selected, we can return null or a default object.
+            // Returning the first point is a safe fallback.
+            return this.state.points[0] || null;
+        }
+        return this.state.points.find(p => p.id === this.state.lastSelectedPointId);
     }
 
     getPointById(id) {
@@ -215,54 +294,6 @@ class ColorEditor {
         this.updateUIReadouts();
     }
 
-    drawHSSlice() {
-        const activePoint = this.getActivePoint();
-        const { brightness, alpha } = activePoint;
-        const width = this.elements.hsBgCanvas.width;
-        const height = this.elements.hsBgCanvas.height;
-        
-        if (width === 0 || height === 0) return;
-        
-        const ctx = this.elements.hsBgCanvas.getContext('2d');
-        ctx.clearRect(0, 0, width, height);
-        this.drawCheckerboard(ctx);
-
-        const maxRadius = Math.sqrt(2/3);
-        const scale = Math.min(width, height) / (maxRadius * 2) * 0.9;
-        this.state.transform.scale = scale;
-        this.state.transform.offsetX = width / 2;
-        this.state.transform.offsetY = height / 2;
-
-        const imageData = ctx.createImageData(width, height);
-        const data = imageData.data;
-
-        for (let j = 0; j < height; j++) {
-            for (let i = 0; i < width; i++) {
-                const au = (i - this.state.transform.offsetX) / this.state.transform.scale;
-                const av = (j - this.state.transform.offsetY) / this.state.transform.scale;
-                const {r, g, b} = this.abstractToRGB(au, av, brightness);
-                const index = (j * width + i) * 4;
-                
-                if (this.isValidColor(r, g, b)) {
-                    data[index] = Math.round(r * 255);
-                    data[index + 1] = Math.round(g * 255);
-                    data[index + 2] = Math.round(b * 255);
-                    data[index + 3] = 255;
-                }
-            }
-        }
-
-        const tempCanvas = document.createElement('canvas');
-        tempCanvas.width = width;
-        tempCanvas.height = height;
-        const tempCtx = tempCanvas.getContext('2d');
-        tempCtx.putImageData(imageData, 0, 0);
-        ctx.globalAlpha = alpha;
-        ctx.drawImage(tempCanvas, 0, 0);
-        ctx.globalAlpha = 1.0;
-
-        this.updateValidPointsCache(width, height, brightness);
-    }
 
     updateValidPointsCache(width, height, brightness) {
         this.validPointsCache = new Set();
@@ -299,11 +330,120 @@ class ColorEditor {
         aCtx.fillRect(0, 0, this.elements.alphaBgCanvas.width, this.elements.alphaBgCanvas.height);
     }
 
-    // This function no longer deletes and recreates canvases
     renderNodes() {
         this.drawHSElements();
         this.drawBrightnessElements();
         this.drawAlphaElements();
+    }
+
+    
+
+    drawHSSlice() {
+        // The HS plane is now drawn based on the viewBrightness, not the active point's brightness.
+        const { viewBrightness, viewAlpha } = this.state;
+        const width = this.elements.hsBgCanvas.width;
+        const height = this.elements.hsBgCanvas.height;
+        
+        if (width === 0 || height === 0) return;
+        
+        const ctx = this.elements.hsBgCanvas.getContext('2d');
+        ctx.clearRect(0, 0, width, height);
+        this.drawCheckerboard(ctx);
+
+        const maxRadius = Math.sqrt(2/3);
+        const scale = Math.min(width, height) / (maxRadius * 2) * C.HS_PLANE_SCALE_FACTOR;
+        this.state.transform.scale = scale;
+        this.state.transform.offsetX = width / 2;
+        this.state.transform.offsetY = height / 2;
+
+        const imageData = ctx.createImageData(width, height);
+        const data = imageData.data;
+
+        for (let j = 0; j < height; j++) {
+            for (let i = 0; i < width; i++) {
+                const au = (i - this.state.transform.offsetX) / this.state.transform.scale;
+                const av = (j - this.state.transform.offsetY) / this.state.transform.scale;
+                const {r, g, b} = this.abstractToRGB(au, av, viewBrightness);
+                const index = (j * width + i) * 4;
+                
+                if (this.isValidColor(r, g, b)) {
+                    data[index] = Math.round(r * 255);
+                    data[index + 1] = Math.round(g * 255);
+                    data[index + 2] = Math.round(b * 255);
+                    data[index + 3] = 255;
+                }
+            }
+        }
+
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = width;
+        tempCanvas.height = height;
+        const tempCtx = tempCanvas.getContext('2d');
+        tempCtx.putImageData(imageData, 0, 0);
+        ctx.globalAlpha = viewAlpha;
+        ctx.drawImage(tempCanvas, 0, 0);
+        ctx.globalAlpha = 1.0;
+
+        this.updateValidPointsCache(width, height, viewBrightness);
+    }
+
+    drawHorizontalLine(ctx, y) {
+        ctx.strokeStyle = C.COLOR_HORIZONTAL_LINE;
+        ctx.lineWidth = C.LINE_WIDTH_HORIZONTAL;
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+        ctx.shadowBlur = 8;
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(ctx.canvas.width, y);
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+    }
+
+    drawConnectingLine(ctx, type) {
+        ctx.strokeStyle = 'black';
+        ctx.lineWidth = C.LINE_WIDTH_DEFAULT;
+        ctx.globalAlpha = 0.7;
+
+        const getCoords = (point, index) => {
+            let x, y;
+            if (type === 'hs') {
+                x = point.hsPos.u * this.state.transform.scale + this.state.transform.offsetX;
+                y = point.hsPos.v * this.state.transform.scale + this.state.transform.offsetY;
+            } else {
+                x = (this.state.points.length > 1 ? index / (this.state.points.length - 1) : 0.5) * ctx.canvas.width;
+                if (type === 'brightness') {
+                    y = (1 - point.brightness) * ctx.canvas.height;
+                } else { // alpha
+                    y = (1 - point.alpha) * ctx.canvas.height;
+                }
+            }
+            return { x, y };
+        };
+
+        ctx.beginPath();
+        for (let i = 0; i < this.state.points.length - 1; i++) {
+            const p1 = this.state.points[i];
+            const p2 = this.state.points[i + 1];
+
+            const startCoords = getCoords(p1, i);
+            const endCoords = getCoords(p2, i + 1);
+
+            const dx = endCoords.x - startCoords.x;
+            const dy = endCoords.y - startCoords.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+
+            // Only draw the line if the points are not overlapping, to avoid visual artifacts.
+            if (dist > C.NODE_RADIUS * 2) {
+                const ratio = C.NODE_RADIUS / dist;
+                const offsetX = dx * ratio;
+                const offsetY = dy * ratio;
+
+                ctx.moveTo(startCoords.x + offsetX, startCoords.y + offsetY);
+                ctx.lineTo(endCoords.x - offsetX, endCoords.y - offsetY);
+            }
+        }
+        ctx.stroke();
+        ctx.globalAlpha = 1.0;
     }
 
     drawHSElements() {
@@ -311,7 +451,7 @@ class ColorEditor {
         if (!canvas) return;
         const ctx = canvas.getContext('2d');
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        const activePoint = this.getActivePoint();
+        
         if (this.state.points.length > 1) {
             this.drawConnectingLine(ctx, 'hs');
         }
@@ -320,21 +460,26 @@ class ColorEditor {
             const y = point.hsPos.v * this.state.transform.scale + this.state.transform.offsetY;
             const color = this.abstractToRGB(point.hsPos.u, point.hsPos.v, point.brightness);
             const {r, g, b} = this.clampColor(color);
-            const isOnCurrentPlane = Math.abs(point.brightness - activePoint.brightness) < 0.01;
+
+            const isSelected = this.state.selectedPointIds.has(point.id);
+            const isLastSelected = point.id === this.state.lastSelectedPointId;
+            const isOnCurrentPlane = Math.abs(point.brightness - this.state.viewBrightness) < 0.01;
+
             ctx.save();
             ctx.globalAlpha = point.alpha;
             ctx.beginPath();
-            ctx.arc(x, y, 9, 0, 2 * Math.PI);
+            ctx.arc(x, y, C.NODE_RADIUS, 0, 2 * Math.PI);
             ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
             ctx.fill();
+
             if (isOnCurrentPlane) {
-                ctx.strokeStyle = point.id === this.state.activePointId ? '#3b82f6' : 'white';
-                ctx.lineWidth = point.id === this.state.activePointId ? 3 : 2;
+                ctx.strokeStyle = isSelected ? C.COLOR_SELECTION_BLUE : 'black';
+                ctx.lineWidth = isLastSelected ? C.LINE_WIDTH_SELECTED : C.LINE_WIDTH_DEFAULT;
                 ctx.stroke();
             } else {
-                ctx.setLineDash([4, 4]);
-                ctx.strokeStyle = 'white';
-                ctx.lineWidth = 2;
+                ctx.setLineDash(C.DASHED_LINE_STYLE);
+                ctx.strokeStyle = isSelected ? C.COLOR_SELECTION_BLUE : 'black';
+                ctx.lineWidth = C.LINE_WIDTH_DEFAULT;
                 ctx.stroke();
                 ctx.setLineDash([]);
             }
@@ -347,8 +492,7 @@ class ColorEditor {
         if (!canvas) return;
         const ctx = canvas.getContext('2d');
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        const activePoint = this.getActivePoint();
-        this.drawHorizontalLine(ctx, (1 - activePoint.brightness) * canvas.height);
+        this.drawHorizontalLine(ctx, (1 - this.state.viewBrightness) * canvas.height);
         if (this.state.points.length > 1) {
             this.drawConnectingLine(ctx, 'brightness');
         }
@@ -357,7 +501,9 @@ class ColorEditor {
             const y = (1 - point.brightness) * canvas.height;
             const color = this.abstractToRGB(point.hsPos.u, point.hsPos.v, point.brightness);
             const {r, g, b} = this.clampColor(color);
-            this.drawPoint(ctx, x, y, r, g, b, point.id === this.state.activePointId);
+            const isSelected = this.state.selectedPointIds.has(point.id);
+            const isLastSelected = point.id === this.state.lastSelectedPointId;
+            this.drawPoint(ctx, x, y, r, g, b, isSelected, isLastSelected);
         });
     }
 
@@ -366,8 +512,7 @@ class ColorEditor {
         if (!canvas) return;
         const ctx = canvas.getContext('2d');
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        const activePoint = this.getActivePoint();
-        this.drawHorizontalLine(ctx, (1 - activePoint.alpha) * canvas.height);
+        this.drawHorizontalLine(ctx, (1 - this.state.viewAlpha) * canvas.height);
         if (this.state.points.length > 1) {
             this.drawConnectingLine(ctx, 'alpha');
         }
@@ -376,57 +521,19 @@ class ColorEditor {
             const y = (1 - point.alpha) * canvas.height;
             const color = this.abstractToRGB(point.hsPos.u, point.hsPos.v, point.brightness);
             const {r, g, b} = this.clampColor(color);
-            this.drawPoint(ctx, x, y, r, g, b, point.id === this.state.activePointId);
+            const isSelected = this.state.selectedPointIds.has(point.id);
+            const isLastSelected = point.id === this.state.lastSelectedPointId;
+            this.drawPoint(ctx, x, y, r, g, b, isSelected, isLastSelected);
         });
     }
 
-    drawHorizontalLine(ctx, y) {
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
-        ctx.lineWidth = 4;
-        ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
-        ctx.shadowBlur = 8;
+    drawPoint(ctx, x, y, r, g, b, isSelected, isLastSelected) {
         ctx.beginPath();
-        ctx.moveTo(0, y);
-        ctx.lineTo(ctx.canvas.width, y);
-        ctx.stroke();
-        ctx.shadowBlur = 0;
-    }
-
-    drawConnectingLine(ctx, type) {
-        ctx.strokeStyle = 'white';
-        ctx.lineWidth = 2;
-        ctx.globalAlpha = 0.7;
-        ctx.beginPath();
-        this.state.points.forEach((point, index) => {
-            let x, y;
-            if (type === 'hs') {
-                x = point.hsPos.u * this.state.transform.scale + this.state.transform.offsetX;
-                y = point.hsPos.v * this.state.transform.scale + this.state.transform.offsetY;
-            } else {
-                x = (this.state.points.length > 1 ? index / (this.state.points.length - 1) : 0.5) * ctx.canvas.width;
-                if (type === 'brightness') {
-                    y = (1 - point.brightness) * ctx.canvas.height;
-                } else {
-                    y = (1 - point.alpha) * ctx.canvas.height;
-                }
-            }
-            if (index === 0) {
-                ctx.moveTo(x, y);
-            } else {
-                ctx.lineTo(x, y);
-            }
-        });
-        ctx.stroke();
-        ctx.globalAlpha = 1.0;
-    }
-
-    drawPoint(ctx, x, y, r, g, b, isActive) {
-        ctx.beginPath();
-        ctx.arc(x, y, 9, 0, 2 * Math.PI);
+        ctx.arc(x, y, C.NODE_RADIUS, 0, 2 * Math.PI);
         ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
         ctx.fill();
-        ctx.strokeStyle = isActive ? '#3b82f6' : 'white';
-        ctx.lineWidth = isActive ? 3 : 2;
+        ctx.strokeStyle = isSelected ? C.COLOR_SELECTION_BLUE : 'black';
+        ctx.lineWidth = isLastSelected ? C.LINE_WIDTH_SELECTED : C.LINE_WIDTH_DEFAULT;
         ctx.stroke();
     }
 
@@ -439,13 +546,24 @@ class ColorEditor {
     }
 
     updateUIReadouts() {
-        const activePoint = this.getActivePoint();
-        const { brightness, alpha, hsPos } = activePoint;
+        const lastSelectedPoint = this.getLastSelectedPoint();
+        
+        if (!lastSelectedPoint) {
+            // If no point is selected, clear the readouts or show default values.
+            this.elements.brightnessValue.textContent = '--';
+            this.elements.alphaValue.textContent = '--';
+            this.elements.rgbValue.textContent = 'rgb(-,-,-)';
+            this.drawColormapPreview();
+            return;
+        }
+
+        const { brightness, alpha, hsPos } = lastSelectedPoint;
         this.elements.brightnessValue.textContent = brightness.toFixed(2);
         this.elements.alphaValue.textContent = alpha.toFixed(2);
         const color = this.abstractToRGB(hsPos.u, hsPos.v, brightness);
         const {r, g, b} = this.clampColor(color);
         this.elements.rgbValue.textContent = `rgb(${r},${g},${b})`;
+        
         this.drawColormapPreview();
     }
 
@@ -483,70 +601,60 @@ class ColorEditor {
     drawCheckerboard(ctx) {
         const width = ctx.canvas.width;
         const height = ctx.canvas.height;
-        const squareSize = 8; // Use the fixed base size
-        const numSquaresW = width / squareSize;
-        const numSquaresH = height / squareSize;
+        const numSquaresW = width / C.CHECKERBOARD_SIZE;
+        const numSquaresH = height / C.CHECKERBOARD_SIZE;
 
-        ctx.fillStyle = '#4a5568';
+        ctx.fillStyle = C.COLOR_CHECKER_DARK;
         ctx.fillRect(0, 0, width, height);
-        ctx.fillStyle = '#718096';
+        ctx.fillStyle = C.COLOR_CHECKER_LIGHT;
         
         for (let i = 0; i < numSquaresH; i++) {
             for (let j = 0; j < numSquaresW; j++) {
                 if ((i + j) % 2 === 0) {
-                    ctx.fillRect(j * squareSize, i * squareSize, squareSize, squareSize);
+                    ctx.fillRect(j * C.CHECKERBOARD_SIZE, i * C.CHECKERBOARD_SIZE, C.CHECKERBOARD_SIZE, C.CHECKERBOARD_SIZE);
                 }
             }
         }
     }
 
     findClosestValidPoint(targetX, targetY) {
-        // If the cache is missing or empty, default to the center of the canvas instead of the cursor position.
         if (!this.validPointsCache || this.validPointsCache.size === 0) {
             return { x: this.state.transform.offsetX, y: this.state.transform.offsetY };
         }
 
-        let minDistance = Infinity;
-        let closestPoint = { x: targetX, y: targetY };
+        const centerX = this.state.transform.offsetX;
+        const centerY = this.state.transform.offsetY;
         const width = this.elements.hsBgCanvas.width;
         const height = this.elements.hsBgCanvas.height;
 
         const roundedX = Math.round(targetX);
         const roundedY = Math.round(targetY);
-        
         if (roundedX >= 0 && roundedX < width && roundedY >= 0 && roundedY < height) {
             if (this.validPointsCache.has(`${roundedX},${roundedY}`)) {
                 return { x: roundedX, y: roundedY };
             }
         }
 
-        const maxRadius = 50;
-        
-        for (let radius = 1; radius <= maxRadius; radius++) {
-            let found = false;
-            const angleStep = Math.PI / (radius * 2);
-            
-            for (let angle = 0; angle < 2 * Math.PI; angle += angleStep) {
-                const checkX = Math.round(targetX + radius * Math.cos(angle));
-                const checkY = Math.round(targetY + radius * Math.sin(angle));
-                
-                if (checkX >= 0 && checkX < width && checkY >= 0 && checkY < height) {
-                    if (this.validPointsCache.has(`${checkX},${checkY}`)) {
-                        const distance = Math.sqrt((checkX - targetX) ** 2 + (checkY - targetY) ** 2);
-                        
-                        if (distance < minDistance) {
-                            minDistance = distance;
-                            closestPoint = { x: checkX, y: checkY };
-                            found = true;
-                        }
-                    }
-                }
-            }
-            
-            if (found) break;
+        const vecX = targetX - centerX;
+        const vecY = targetY - centerY;
+        const dist = Math.sqrt(vecX * vecX + vecY * vecY);
+
+        if (dist < 1) {
+            return { x: centerX, y: centerY };
         }
 
-        return closestPoint;
+        const steps = Math.ceil(dist);
+        for (let i = steps; i >= 0; i--) {
+            const fraction = i / steps;
+            const checkX = Math.round(centerX + vecX * fraction);
+            const checkY = Math.round(centerY + vecY * fraction);
+
+            if (this.validPointsCache.has(`${checkX},${checkY}`)) {
+                return { x: checkX, y: checkY };
+            }
+        }
+
+        return { x: centerX, y: centerY };
     }
 
     constrainPointToValidArea(point) {
@@ -567,7 +675,6 @@ class ColorEditor {
         }
     }
 
-    // Improved mouse handling logic
     handleMouseDown(e, type) {
         e.preventDefault();
         e.stopPropagation();
@@ -583,11 +690,10 @@ class ColorEditor {
         
         const startPos = { x, y };
         let hasDragged = false;
-        const dragThreshold = 5;
-    
+        
         let hitPoint = null;
         let hitLine = false;
-    
+        
         if (type === 'hs') {
             hitPoint = this.findHitPointHS(x, y);
         } else {
@@ -595,43 +701,49 @@ class ColorEditor {
             hitPoint = result.hitPoint;
             hitLine = result.hitLine;
         }
-    
+        
+        const lastActiveId = this.state.activePointId;
+
         if (hitPoint) {
             this.state.activePointId = hitPoint.id;
+            this.state.viewBrightness = hitPoint.brightness;
+            this.state.viewAlpha = hitPoint.alpha;
             this.state.activeDrag = { type: type, element: canvas, pointId: hitPoint.id };
-            this.drawAll();
         } else if (hitLine) {
+            this.state.activePointId = null; // Deselect point during line drag
             this.state.activeDrag = { type: type + '-line', element: canvas, pointId: null };
         } else {
-             // Allow clicking on the background of sliders/HS pane
-             this.state.activeDrag = { type: type, element: canvas, pointId: null };
+            this.state.activeDrag = { type: type, element: canvas, pointId: null };
         }
-    
+        this.drawAll();
+        
         const onMove = (moveEvent) => {
             const currentX = (moveEvent.clientX - rect.left) * scaleX;
             const currentY = (moveEvent.clientY - rect.top) * scaleY;
-    
             const dist = Math.sqrt((currentX - startPos.x) ** 2 + (currentY - startPos.y) ** 2);
-            if (dist > dragThreshold) {
+            if (dist > C.DRAG_THRESHOLD) {
                 hasDragged = true;
             }
-    
             if (this.state.activeDrag.type) {
                 this.handleMouseMove(moveEvent);
             }
         };
-    
+        
         const onEnd = () => {
             document.removeEventListener('mousemove', onMove);
             document.removeEventListener('mouseup', onEnd);
             
             if (!hasDragged) {
                 this.handleClick(x, y, type, hitPoint);
+            } else if (this.state.activeDrag.type && this.state.activeDrag.type.endsWith('-line')) {
+                // If we just finished a line drag, re-select the previously active point.
+                this.state.activePointId = lastActiveId;
             }
             
             this.state.activeDrag = { type: null, element: null, pointId: null };
+            this.drawAll();
         };
-    
+        
         document.addEventListener('mousemove', onMove);
         document.addEventListener('mouseup', onEnd);
     }
@@ -641,7 +753,7 @@ class ColorEditor {
             const px = point.hsPos.u * this.state.transform.scale + this.state.transform.offsetX;
             const py = point.hsPos.v * this.state.transform.scale + this.state.transform.offsetY;
             const distance = Math.sqrt((x - px) ** 2 + (y - py) ** 2);
-            if (distance <= 12) {
+            if (distance <= C.NODE_HIT_RADIUS) {
                 return point;
             }
         }
@@ -649,17 +761,19 @@ class ColorEditor {
     }
 
     findHitPointSlider(x, y, type) {
-        const activePoint = this.getActivePoint();
         const canvas = this.elements.interactiveCanvases[type];
-        const lineY = type === 'brightness' ? (1 - activePoint.brightness) * canvas.height : (1 - activePoint.alpha) * canvas.height;
-        let hitLine = Math.abs(y - lineY) <= 8;
+        // FIX: The line's position is determined by the "view" state, not the active point.
+        // This allows the line to be detected and dragged even when no point is selected.
+        const lineY = type === 'brightness' ? (1 - this.state.viewBrightness) * canvas.height : (1 - this.state.viewAlpha) * canvas.height;
+        let hitLine = Math.abs(y - lineY) <= C.LINE_HIT_RADIUS;
+        
         let hitPoint = null;
         for (let i = 0; i < this.state.points.length; i++) {
             const point = this.state.points[i];
             const px = (this.state.points.length === 1 ? 0.5 : i / (this.state.points.length - 1)) * canvas.width;
             const py = type === 'brightness' ? (1 - point.brightness) * canvas.height : (1 - point.alpha) * canvas.height;
             const distance = Math.sqrt((x - px) ** 2 + (y - py) ** 2);
-            if (distance <= 12) {
+            if (distance <= C.NODE_HIT_RADIUS) {
                 hitPoint = point;
                 break;
             }
@@ -667,19 +781,52 @@ class ColorEditor {
         return { hitPoint, hitLine };
     }
 
-    handleClick(x, y, type, hitPoint) {
+    handleClick(x, y, type, hitPoint, e) {
+        const { shiftKey, ctrlKey, metaKey } = e;
+        const isCtrlPressed = ctrlKey || metaKey; // Also check for Cmd key on Mac
+
         if (hitPoint) {
-            this.state.activePointId = hitPoint.id;
+            const { selectedPointIds } = this.state;
+            const pointId = hitPoint.id;
+
+            if (isCtrlPressed) {
+                // CTRL/CMD toggles the selection of the clicked point.
+                if (selectedPointIds.has(pointId)) {
+                    selectedPointIds.delete(pointId);
+                    // If we are deselecting the last-selected point, clear it.
+                    if (this.state.lastSelectedPointId === pointId) {
+                        this.state.lastSelectedPointId = selectedPointIds.values().next().value || null;
+                    }
+                } else {
+                    selectedPointIds.add(pointId);
+                    this.state.lastSelectedPointId = pointId;
+                }
+            } else if (shiftKey) {
+                // SHIFT adds the point to the selection.
+                selectedPointIds.add(pointId);
+                this.state.lastSelectedPointId = pointId;
+            } else {
+                // No modifier key: clear previous selection and select only the clicked point.
+                selectedPointIds.clear();
+                selectedPointIds.add(pointId);
+                this.state.lastSelectedPointId = pointId;
+            }
+            
+            // When a point is selected, snap the view sliders to its values.
+            this.state.viewBrightness = hitPoint.brightness;
+            this.state.viewAlpha = hitPoint.alpha;
+
         } else if (type === 'hs') {
+            // Clicking the HS background creates a new point.
             this.createNewPointHS(x, y);
         } else if (type === 'brightness' || type === 'alpha') {
-            // This allows clicking on the slider track to set the value
-            const activePoint = this.getActivePoint();
+            // Clicking a slider track moves the view line to that position.
             const canvas = this.elements.interactiveCanvases[type];
             const value = Math.max(0, Math.min(1, 1 - (y / canvas.height)));
-            activePoint[type] = value;
             if (type === 'brightness') {
-                this.constrainPointToValidArea(activePoint);
+                this.state.viewBrightness = value;
+            } else {
+                this.state.viewAlpha = value;
             }
         }
         this.drawAll();
@@ -688,19 +835,131 @@ class ColorEditor {
     createNewPointHS(x, y) {
         const au = (x - this.state.transform.offsetX) / this.state.transform.scale;
         const av = (y - this.state.transform.offsetY) / this.state.transform.scale;
-        const activePoint = this.getActivePoint();
-        const {r, g, b} = this.abstractToRGB(au, av, activePoint.brightness);
+        
+        // A new point should be created on the current visual plane.
+        const { viewBrightness, viewAlpha } = this.state;
+        const {r, g, b} = this.abstractToRGB(au, av, viewBrightness);
+
         if (this.isValidColor(r, g, b)) {
             const newPoint = {
                 id: Date.now(),
                 hsPos: {u: au, v: av},
                 originalHsPos: {u: au, v: av},
-                brightness: activePoint.brightness,
-                alpha: activePoint.alpha,
+                brightness: viewBrightness,
+                alpha: viewAlpha,
             };
             this.state.points.push(newPoint);
-            this.state.activePointId = newPoint.id;
+
+            // When a new point is created, it becomes the only selected point.
+            this.state.selectedPointIds.clear();
+            this.state.selectedPointIds.add(newPoint.id);
+            this.state.lastSelectedPointId = newPoint.id;
+            
             this.drawAll();
+        }
+    }
+
+    handleMouseDown(e, type) {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        const canvas = this.elements.interactiveCanvases[type];
+        if (!canvas) return;
+        
+        const rect = canvas.getBoundingClientRect();
+        const scaleX = canvas.width / rect.width;
+        const scaleY = canvas.height / rect.height;
+        const x = (e.clientX - rect.left) * scaleX;
+        const y = (e.clientY - rect.top) * scaleY;
+        
+        const startPos = { x, y };
+        let hasDragged = false;
+        
+        let hitPoint = null;
+        let hitLine = false;
+        
+        if (type === 'hs') {
+            hitPoint = this.findHitPointHS(x, y);
+        } else {
+            const result = this.findHitPointSlider(x, y, type);
+            hitPoint = result.hitPoint;
+            hitLine = result.hitLine;
+        }
+        
+        if (hitPoint) {
+            // If the clicked point is NOT already selected, and no modifier keys are pressed,
+            // then we start a new selection immediately for better drag feedback.
+            if (!this.state.selectedPointIds.has(hitPoint.id) && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
+                this.state.selectedPointIds.clear();
+                this.state.selectedPointIds.add(hitPoint.id);
+                this.state.lastSelectedPointId = hitPoint.id;
+            }
+            this.state.activeDrag = { type: type, element: canvas, pointId: hitPoint.id };
+
+        } else if (hitLine) {
+            // A slider line was clicked (not a point).
+            this.state.activeDrag = { type: type + '-line', element: canvas, pointId: null };
+        } else {
+            // The background was clicked.
+            this.state.activeDrag = { type: type, element: canvas, pointId: null };
+        }
+        this.drawAll();
+        
+        const onMove = (moveEvent) => {
+            const currentX = (moveEvent.clientX - rect.left) * scaleX;
+            const currentY = (moveEvent.clientY - rect.top) * scaleY;
+            const dist = Math.sqrt((currentX - startPos.x) ** 2 + (currentY - startPos.y) ** 2);
+            if (dist > C.DRAG_THRESHOLD) {
+                hasDragged = true;
+            }
+            if (this.state.activeDrag.type) {
+                this.handleMouseMove(moveEvent);
+            }
+        };
+        
+        const onEnd = () => {
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('mouseup', onEnd);
+            
+            if (!hasDragged) {
+                // It was a click, not a drag. Pass the original event `e` to handle modifier keys.
+                this.handleClick(x, y, type, hitPoint, e);
+            } else {
+                 // The drag ended. If we were dragging a point, snap the view to it.
+                const draggedPoint = this.getPointById(this.state.activeDrag.pointId);
+                if (draggedPoint) {
+                    this.state.viewBrightness = draggedPoint.brightness;
+                    this.state.viewAlpha = draggedPoint.alpha;
+                }
+                 // If we dragged the background, clear the selection.
+                 else if (!hitPoint) {
+                    this.state.selectedPointIds.clear();
+                    this.state.lastSelectedPointId = null;
+                 }
+            }
+            
+            this.state.activeDrag = { type: null, element: null, pointId: null };
+            this.drawAll();
+        };
+        
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onEnd);
+    }
+
+    handleLineDrag(y, canvasHeight, dragType) {
+        // Dragging a line ONLY changes the view state, not any point's data.
+        const targetValue = Math.max(0, Math.min(1, 1 - (y / canvasHeight)));
+        const property = dragType.startsWith('brightness') ? 'viewBrightness' : 'viewAlpha';
+        this.state[property] = targetValue;
+    }
+
+    handlePointDrag(x, y, canvas, dragType) {
+        const point = this.getPointById(this.state.activeDrag.pointId);
+        if (!point) return;
+        if (dragType === 'hs') {
+            this.handleHSPointDrag(point, x, y);
+        } else if (dragType === 'brightness' || dragType === 'alpha') {
+            this.handleSliderPointDrag(point, y, canvas.height, dragType);
         }
     }
 
@@ -723,27 +982,6 @@ class ColorEditor {
         this.drawAll();
     }
 
-    handleLineDrag(y, canvasHeight, dragType) {
-        const targetValue = Math.max(0, Math.min(1, 1 - (y / canvasHeight)));
-        const property = dragType.startsWith('brightness') ? 'brightness' : 'alpha';
-        const activePoint = this.getActivePoint();
-        activePoint[property] = targetValue;
-        if (property === 'brightness') {
-            this.constrainPointToValidArea(activePoint);
-        }
-    }
-
-    handlePointDrag(x, y, canvas, dragType) {
-        const point = this.getPointById(this.state.activeDrag.pointId);
-        if (!point) return;
-        if (dragType === 'hs') {
-            this.handleHSPointDrag(point, x, y);
-        } else if (dragType === 'brightness' || dragType === 'alpha') {
-            this.handleSliderPointDrag(point, y, canvas.height, dragType);
-        }
-    }
-
-    // This is the single requested change from your first ask
     handleHSPointDrag(point, x, y) {
         const au = (x - this.state.transform.offsetX) / this.state.transform.scale;
         const av = (y - this.state.transform.offsetY) / this.state.transform.scale;
@@ -762,13 +1000,18 @@ class ColorEditor {
     handleSliderPointDrag(point, y, canvasHeight, dragType) {
         const value = Math.max(0, Math.min(1, 1 - (y / canvasHeight)));
         point[dragType] = value;
+
+        // When dragging a point, make the view line and HS slice follow it.
         if (dragType === 'brightness') {
+            this.state.viewBrightness = value;
             this.updateValidPointsCache(
                 this.elements.hsBgCanvas.width, 
                 this.elements.hsBgCanvas.height, 
                 point.brightness
             );
             this.constrainPointToValidArea(point);
+        } else { // dragType is 'alpha'
+            this.state.viewAlpha = value;
         }
     }
 }
@@ -776,6 +1019,7 @@ class ColorEditor {
 document.addEventListener('DOMContentLoaded', () => {
     new ColorEditor();
 });
+
 
 === styles.css ===
 body {
