@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Color Editor</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body class="bg-gray-800 text-gray-200 flex items-center justify-center min-h-screen">
+    <div class="w-full h-[400px] bg-gray-900 rounded-xl shadow-2xl p-2 grid grid-cols-4 gap-2">
+        <div class="col-span-2 flex flex-col items-center space-y-1 h-full min-w-0">
+            <h2 class="text-xs font-semibold text-white flex-shrink-0">Hue/Saturation Plane</h2>
+            <div id="hs-canvas-container" class="canvas-container">
+                <canvas id="hs-bg-canvas"></canvas>
+                <div id="hs-nodes-container" class="absolute top-0 left-0 w-full h-full"></div>
+            </div>
+        </div>
+
+        <div class="col-span-1 flex flex-col gap-2 h-full min-w-0">
+            <div class="flex-1 flex flex-col items-center space-y-1 min-h-0">
+                <h2 class="text-xs font-semibold text-white flex-shrink-0">Brightness</h2>
+                <div id="brightness-slider-container" class="canvas-container">
+                    <canvas id="brightness-bg-canvas"></canvas>
+                    <div id="brightness-nodes-container" class="absolute top-0 left-0 w-full h-full"></div>
+                </div>
+            </div>
+            <div class="flex-1 flex flex-col items-center space-y-1 min-h-0">
+                <h2 class="text-xs font-semibold text-white flex-shrink-0">Alpha</h2>
+                <div id="alpha-slider-container" class="canvas-container">
+                    <canvas id="alpha-bg-canvas"></canvas>
+                    <div id="alpha-nodes-container" class="absolute top-0 left-0 w-full h-full"></div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="col-span-1 bg-gray-800/50 p-2 rounded-lg flex flex-col justify-around items-center h-full">
+             <div class="text-center w-full">
+                 <h3 class="font-medium text-gray-400 text-xs">Colormap</h3>
+                 <div class="w-full h-10 rounded-md mt-1 border border-gray-600 relative">
+                      <canvas id="colormap-preview-canvas" class="w-full h-full"></canvas>
+                 </div>
+             </div>
+             <div class="text-center">
+                 <h3 class="font-medium text-gray-400 text-xs">Brightness</h3>
+                 <p id="brightness-value" class="font-mono text-base">0.50</p>
+             </div>
+             <div class="text-center">
+                 <h3 class="font-medium text-gray-400 text-xs">Alpha</h3>
+                 <p id="alpha-value" class="font-mono text-base">1.00</p>
+             </div>
+             <div class="text-center">
+                 <h3 class="font-medium text-gray-400 text-xs">RGB</h3>
+                 <p id="rgb-value" class="font-mono text-xs">rgb(128,128,128)</p>
+             </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
