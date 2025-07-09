@@ -11,7 +11,10 @@
 <body class="bg-gray-800 text-gray-200 flex items-center justify-center min-h-screen">
     <div class="w-full h-[400px] bg-gray-900 rounded-xl shadow-2xl p-2 grid grid-cols-4 gap-2">
         <div class="col-span-2 flex flex-col items-center space-y-1 h-full min-w-0">
-            <h2 class="text-xs font-semibold text-white flex-shrink-0">Hue/Saturation Plane</h2>
+            <div class="flex-shrink-0 flex items-center justify-center space-x-2 mb-1">
+                <button id="tab-rgb-cube" class="tab-button">RGB Cube</button>
+                <button id="tab-hsl-cone" class="tab-button">HSL Di-Cone</button>
+            </div>
             <div id="hs-canvas-container" class="canvas-container">
                 <canvas id="hs-bg-canvas"></canvas>
                 <div id="hs-nodes-container" class="absolute top-0 left-0 w-full h-full"></div>
@@ -20,10 +23,10 @@
 
         <div class="col-span-1 flex flex-col gap-2 h-full min-w-0">
             <div class="flex-1 flex flex-col items-center space-y-1 min-h-0">
-                <h2 class="text-xs font-semibold text-white flex-shrink-0">Brightness</h2>
-                <div id="brightness-slider-container" class="canvas-container">
-                    <canvas id="brightness-bg-canvas"></canvas>
-                    <div id="brightness-nodes-container" class="absolute top-0 left-0 w-full h-full"></div>
+                <h2 class="text-xs font-semibold text-white flex-shrink-0">Lightness</h2>
+                <div id="lightness-slider-container" class="canvas-container">
+                    <canvas id="lightness-bg-canvas"></canvas>
+                    <div id="lightness-nodes-container" class="absolute top-0 left-0 w-full h-full"></div>
                 </div>
             </div>
             <div class="flex-1 flex flex-col items-center space-y-1 min-h-0">
@@ -39,25 +42,22 @@
              <div class="text-center w-full">
                  <h3 class="font-medium text-gray-400 text-xs">Colormap</h3>
                  <div class="w-full h-10 rounded-md mt-1 border border-gray-600 relative">
-                       <canvas id="colormap-preview-canvas" class="w-full h-full"></canvas>
+                     <canvas id="colormap-preview-canvas" class="w-full h-full"></canvas>
                  </div>
              </div>
              <div class="text-center">
-                 <h3 class="font-medium text-gray-400 text-xs">Brightness</h3>
-                 <p id="brightness-value" class="font-mono text-base">0.50</p>
+                 <h3 class="font-medium text-gray-400 text-xs">Lightness</h3>
+                 <p id="lightness-value" class="font-mono text-base">0.50</p>
              </div>
              <div class="text-center">
                  <h3 class="font-medium text-gray-400 text-xs">Alpha</h3>
                  <p id="alpha-value" class="font-mono text-base">1.00</p>
              </div>
-             <div class="text-center">
-                 <h3 class="font-medium text-gray-400 text-xs">RGB</h3>
-                 <p id="rgb-value" class="font-mono text-xs">rgb(128,128,128)</p>
+             <div id="color-readout-container" class="text-center">
              </div>
         </div>
     </div>
 
-    <!-- The script tag now includes type="module" to allow for imports -->
     <script type="module" src="script.js"></script>
 </body>
 </html>
