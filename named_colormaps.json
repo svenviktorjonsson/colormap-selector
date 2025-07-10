@@ -1,0 +1,26 @@
+{
+    "rgb": {
+        "points": [
+            { "pos": 0.0, "color": "red", "order": 1 },
+            { "pos": 0.5, "color": "green", "order": 1 },
+            { "pos": 1.0, "color": "blue", "order": 1 }
+        ]
+    },
+    "jet": {
+        "points": [
+            { "pos": 0.0, "color": [0, 0, 131], "order": 1 },
+            { "pos": 0.125, "color": [0, 60, 255], "order": 1 },
+            { "pos": 0.375, "color": "cyan", "order": 1 },
+            { "pos": 0.625, "color": "yellow", "order": 1 },
+            { "pos": 0.875, "color": "red", "order": 1 },
+            { "pos": 1.0, "color": [128, 0, 0], "order": 1 }
+        ]
+    },
+    "viridis": {
+        "points": [
+            { "pos": 0.0, "color": [68, 1, 84], "order": 1 },
+            { "pos": 0.5, "color": [33, 145, 140], "order": 1 },
+            { "pos": 1.0, "color": [253, 231, 37], "order": 1 }
+        ]
+    }
+}

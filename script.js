@@ -2,101 +2,692 @@ import * as C from './constants.js';
 
 class ColorEditor {
     constructor() {
-    const initialPointId = Date.now();
-    const initialPoint = {
-        id: initialPointId,
-        hsPos: { u: 0, v: 0 },
-        originalHsPos: { u: 0, v: 0 },
-        lightness: 0.5,
-        alpha: 1.0,
-        pos: 0.5,
-        order: 1,
-    };
+        this.state = {
+            points: [],
+            selectedPointIds: new Set(),
+            lastSelectedPointId: null,
+            activeDrag: { type: null, element: null, pointId: null },
+            transform: { scale: 1, offsetX: 0, offsetY: 0 },
+            viewLightness: 0.5,
+            viewAlpha: 1.0,
+            colorSpace: 'RGB_CUBE',
+            undoStack: [],
+            redoStack: [],
+            isMouseInCanvas: false,
+            isDirty: false,
+            loadedColormapName: null,
+            loadedColormapType: null
+        };
 
-    this.state = {
-        points: [initialPoint],
-        selectedPointIds: new Set([initialPointId]),
-        lastSelectedPointId: initialPointId,
-        activeDrag: { type: null, element: null, pointId: null },
-        transform: { scale: 1, offsetX: 0, offsetY: 0 },
-        viewLightness: initialPoint.lightness,
-        viewAlpha: initialPoint.alpha,
-        colorSpace: 'RGB_CUBE',
-        undoStack: [],
-        redoStack: [],
-        isMouseInCanvas: false,
-    };
+        this.namedColors = {};
+        this.customColors = {};
+        this.namedColormaps = {};
+        this.customColormaps = {};
 
-    this.validPointsCache = null;
-    this.clickCount = 0;
-    this.lastClickTime = 0;
-    this.lastClickTarget = null;
+        this.clickCount = 0;
+        this.lastClickTime = 0;
+        this.lastClickTarget = null;
+    }
 
-    this.initializeDOM();
-    this.updateTabs();
-    this.setupCanvases();
-    this.setupEventListeners();
-}
+    async initialize() {
+        try {
+            this.initializeDOM();
+            await this.loadAllPresets();
+
+            this.populatePresets();
+            this.loadColormap('viridis', 'named_colormaps', true);
+            this.updateTabs();
+            this.setupCanvases();
+            this.setupEventListeners();
+            this.drawAll();
+        } catch (error) {
+            console.error("FATAL: Could not initialize ColorEditor.", error);
+            const editorElement = document.querySelector('.color-editor-layout') || document.body;
+            editorElement.innerHTML = `
+                <div style="padding: 2em; text-align: center; color: #d8000c; background-color: #ffbaba; border: 1px solid; margin: 10px; font-family: sans-serif;">
+                    <strong>Application Failed to Start</strong>
+                    <p>Could not load or parse critical data files. Please check the network connection and the validity of your JSON files, then reload.</p>
+                </div>
+            `;
+        }
+    }
+
+    processColormapPresets() {
+        console.log("--- Starting Colormap Processing ---");
+        // Log a snapshot of the available colors to verify they loaded correctly.
+        console.log("Available named colors at start:", JSON.parse(JSON.stringify(this.namedColors)));
+
+        for (const name in this.namedColormaps) {
+            console.log(`Processing colormap: '${name}'`);
+            const originalColormap = this.namedColormaps[name];
+            if (!originalColormap || !originalColormap.points) {
+                console.log(`Skipping colormap '${name}' due to missing or invalid points array.`);
+                continue;
+            }
+
+            this.processedNamedColormaps[name] = {
+                points: originalColormap.points.map(p => {
+                    let rgb;
+                    // Log the point we are about to process
+                    console.log(`  - Processing point at pos: ${p.pos}, with color value:`, p.color);
+
+                    if (typeof p.color === 'string') {
+                        console.log(`    > Color is a string. Looking up '${p.color}'...`);
+                        rgb = this.namedColors[p.color] || (this.customColors[p.color] ? this.customColors[p.color].rgb : undefined);
+
+                        if (!rgb) {
+                            console.error(`    > LOOKUP FAILED for color name '${p.color}'. Defaulting to magenta.`);
+                            rgb = [255, 0, 255]; // Use a bright, obvious error color.
+                        } else {
+                            console.log(`    > Lookup successful. Found RGB:`, rgb);
+                        }
+                    } else {
+                        console.log(`    > Color is not a string. Using value directly.`);
+                        rgb = p.color;
+                    }
+
+                    // Add a final check to ensure the resulting RGB value is a valid array.
+                    if (!Array.isArray(rgb) || rgb.length !== 3) {
+                         console.error(`    > RESULTING RGB IS INVALID!`, rgb, `Defaulting to red.`);
+                         rgb = [255, 0, 0]; // Use another obvious error color.
+                    }
+
+                    return { pos: p.pos, color: rgb };
+                })
+            };
+        }
+        console.log("--- Finished Colormap Processing ---");
+        // Log the final processed data that will be used for drawing icons.
+        console.log("Final processed colormaps for rendering:", this.processedNamedColormaps);
+    }
+
+    createSnapshot() {
+        return {
+            points: JSON.parse(JSON.stringify(this.state.points)),
+            selectedPointIds: Array.from(this.state.selectedPointIds),
+            lastSelectedPointId: this.state.lastSelectedPointId,
+            viewLightness: this.state.viewLightness,
+            viewAlpha: this.state.viewAlpha,
+            colorSpace: this.state.colorSpace,
+            isDirty: this.state.isDirty,
+            loadedColormapName: this.state.loadedColormapName,
+            loadedColormapType: this.state.loadedColormapType
+        };
+    }
 
     saveState() {
         this.state.redoStack = [];
-        const currentState = JSON.parse(JSON.stringify(this.state));
-        this.state.undoStack.push(currentState);
+        this.state.undoStack.push(this.createSnapshot());
     }
+
+    setDirty(isDirty) {
+        if (this.state.isDirty !== isDirty) {
+            this.state.isDirty = isDirty;
+        }
+    }
+
+    restoreState(snapshot) {
+        Object.assign(this.state, snapshot);
+        this.state.selectedPointIds = new Set(snapshot.selectedPointIds);
+        this.sortPoints();
+        this.updateTabs();
+        this.drawAll();
+    }
+
+    undo() {
+        if (this.state.undoStack.length === 0) return;
+        this.state.redoStack.push(this.createSnapshot());
+        this.restoreState(this.state.undoStack.pop());
+    }
+
+    redo() {
+        if (this.state.redoStack.length === 0) return;
+        this.state.undoStack.push(this.createSnapshot());
+        this.restoreState(this.state.redoStack.pop());
+    }
+
+    async loadAllPresets() {
+        const fetchPreset = async (url) => {
+            const response = await fetch(url);
+            if (!response.ok) {
+                throw new Error(`Failed to fetch preset file at ${url}: Status ${response.status}`);
+            }
+            // This will also throw an error for malformed JSON, which is what we want.
+            return await response.json();
+        };
+
+        const loadFromStorage = (key) => {
+            try {
+                const storedData = localStorage.getItem(key);
+                return storedData ? JSON.parse(storedData) : {};
+            } catch (e) {
+                return {};
+            }
+        };
+
+        [this.namedColors, this.customColors, this.namedColormaps, this.customColormaps] = await Promise.all([
+            fetchPreset('named_colors.json'),
+            loadFromStorage('custom_colors'),
+            fetchPreset('named_colormaps.json'),
+            loadFromStorage('custom_colormaps')
+        ]);
+    }
+
+    saveCustomPresets(type) {
+        const key = type === 'custom_colors' ? 'custom_colors' : 'custom_colormaps';
+        const data = type === 'custom_colors' ? this.customColors : this.customColormaps;
+        try {
+            localStorage.setItem(key, JSON.stringify(data));
+        } catch (e) {
+            console.error(`Failed to save ${key} to localStorage`, e);
+        }
+    }
+
+    initializeDOM() {
+        this.elements = {
+            tabRgbCube: document.getElementById('tab-rgb-cube'),
+            tabHslCone: document.getElementById('tab-hsl-cone'),
+            hsBgCanvas: document.getElementById('hs-bg-canvas'),
+            hsNodesContainer: document.getElementById('hs-nodes-container'),
+            lightnessBgCanvas: document.getElementById('lightness-bg-canvas'),
+            lightnessNodesContainer: document.getElementById('lightness-nodes-container'),
+            alphaBgCanvas: document.getElementById('alpha-bg-canvas'),
+            alphaNodesContainer: document.getElementById('alpha-nodes-container'),
+            selectedColorPreviewCanvas: document.getElementById('selected-color-preview-canvas'),
+            colormapPreviewCanvas: document.getElementById('colormap-preview-canvas'),
+            colorsPresetsWrapper: document.getElementById('colors-presets-wrapper'),
+            colormapsPresetsWrapper: document.getElementById('colormaps-presets-wrapper'),
+            selectButton: document.getElementById('select-button'),
+            lightnessInput: document.getElementById('lightness-input'),
+            alphaInput: document.getElementById('alpha-input'),
+            rgbInputsContainer: document.getElementById('rgb-inputs-container'),
+            hslInputsContainer: document.getElementById('hsl-inputs-container'),
+            rgbRInput: document.getElementById('rgb-r-input'),
+            rgbGInput: document.getElementById('rgb-g-input'),
+            rgbBInput: document.getElementById('rgb-b-input'),
+            hslHInput: document.getElementById('hsl-h-input'),
+            hslSInput: document.getElementById('hsl-s-input'),
+            hslLInput: document.getElementById('hsl-l-input'),
+            modalOverlay: document.getElementById('modal-overlay'),
+            modalDialog: document.getElementById('modal-dialog'),
+            modalTitle: document.getElementById('modal-title'),
+            modalInputContainer: document.getElementById('modal-input-container'),
+            modalInput: document.getElementById('modal-input'),
+            modalButtons: document.getElementById('modal-buttons'),
+            contextMenu: document.getElementById('context-menu'),
+            interactiveCanvases: {}
+        };
+        this.createInteractiveCanvas(this.elements.hsNodesContainer, 'hs');
+        this.createInteractiveCanvas(this.elements.lightnessNodesContainer, 'lightness');
+        this.createInteractiveCanvas(this.elements.alphaNodesContainer, 'alpha');
+    }
+
     
-    createSnapshot() {
-    return {
-        points: JSON.parse(JSON.stringify(this.state.points)),
-        selectedPointIds: Array.from(this.state.selectedPointIds),
-        lastSelectedPointId: this.state.lastSelectedPointId,
-        viewLightness: this.state.viewLightness,
-        viewAlpha: this.state.viewAlpha,
-        colorSpace: this.state.colorSpace,
-    };
-}
 
-saveState() {
-    this.state.redoStack = [];
-    this.state.undoStack.push(this.createSnapshot());
-}
+    async handlePresetClick(target) {
+        const { name, type } = target.dataset;
 
-restoreState(snapshot) {
-    this.state.points = snapshot.points;
-    this.state.selectedPointIds = new Set(snapshot.selectedPointIds);
-    this.state.lastSelectedPointId = snapshot.lastSelectedPointId;
-    this.state.viewLightness = snapshot.viewLightness;
-    this.state.viewAlpha = snapshot.viewAlpha;
-    this.state.colorSpace = snapshot.colorSpace;
+        // This is the corrected condition.
+        if (type === 'named_colors' || type === 'custom_colors') {
+            let rgb;
+            if (type === 'named_colors') {
+                rgb = this.namedColors[name];
+            } else {
+                rgb = this.customColors[name]?.rgb;
+            }
+
+            if (!rgb) {
+                console.error(`RGB undefined for ${name} in ${type}`);
+                return;
+            }
+            this.applyColorToSelection(rgb);
+        } else {
+            // This 'else' block will now correctly handle 'named_colormaps' and 'custom_colormaps'.
+            if (this.state.isDirty && name !== this.state.loadedColormapName) {
+                const action = await this.showPrompt('You have unsaved changes. Save the current colormap?', ['Save', 'Don\'t Save', 'Cancel']);
+                if (action === 'Cancel') return;
+                if (action === 'Save') {
+                    const saved = await this.promptAndSaveNewPreset('custom_colormaps', this.state.loadedColormapName || 'My Colormap');
+                    if (!saved) return;
+                }
+            }
+            this.loadColormap(name, type);
+        }
+    }
+
+    applyColorToSelection(rgb) {
+        this.markAsDirty();
+        const r = rgb[0] / 255;
+        const g = rgb[1] / 255;
+        const b = rgb[2] / 255;
+
+        if (this.state.selectedPointIds.size === 0) {
+            const newPos = this.state.points.length > 0 ? 1.0 : 0.5;
+            const newPoint = this.createPointFromRgb(r, g, b, 1.0, newPos, 1);
+            this.state.points.push(newPoint);
+            this.sortPoints();
+            this.state.selectedPointIds.clear();
+            this.state.selectedPointIds.add(newPoint.id);
+            this.state.lastSelectedPointId = newPoint.id;
+        } else {
+            this.state.points.forEach(p => {
+                if (this.state.selectedPointIds.has(p.id)) {
+                    const newColor = this.convertRgbToCurrentColorspace(r, g, b);
+                    p.hsPos = newColor.hsPos;
+                    p.originalHsPos = { ...newColor.hsPos };
+                    p.lightness = newColor.lightness;
+                }
+            });
+        }
+        
+        // This is the new logic that fixes the issue.
+        const lastSelectedPoint = this.getLastSelectedPoint();
+        if (lastSelectedPoint) {
+            this.state.viewLightness = lastSelectedPoint.lightness;
+            this.state.viewAlpha = lastSelectedPoint.alpha;
+        }
+
+        this.drawAll();
+    }
+
+    loadColormap(name, type, isInitialLoad = false) {
+        if (!isInitialLoad) this.saveState();
+        
+        const colormapData = (type === 'named_colormaps') ? this.namedColormaps[name] : this.customColormaps[name];
+        
+        if (!colormapData || !colormapData.points) {
+            console.error(`Colormap '${name}' not found or is invalid.`);
+            return;
+        }
+
+        const newPoints = colormapData.points.map(p => {
+            let rgbArray = [0, 0, 0];
+            if (typeof p.color === 'string') {
+                rgbArray = this.namedColors[p.color] || this.customColors[p.color]?.rgb || rgbArray;
+            } else if (Array.isArray(p.color)) {
+                rgbArray = p.color;
+            }
+
+            const r = rgbArray[0] / 255;
+            const g = rgbArray[1] / 255;
+            const b = rgbArray[2] / 255;
+            const alpha = p.alpha ?? 1.0;
+            return this.createPointFromRgb(r, g, b, alpha, p.pos, p.order);
+        });
+
+        this.state.points = newPoints;
+        this.sortPoints();
+        this.state.selectedPointIds.clear();
+
+        if (this.state.points.length > 0) {
+            const firstPointId = this.state.points[0].id;
+            this.state.selectedPointIds.add(firstPointId);
+            this.state.lastSelectedPointId = firstPointId;
+            this.state.viewLightness = this.state.points[0].lightness;
+            this.state.viewAlpha = this.state.points[0].alpha;
+        } else {
+            this.state.lastSelectedPointId = null;
+        }
+
+        this.state.loadedColormapName = name;
+        this.state.loadedColormapType = type;
+        this.setDirty(false);
+        this.state.undoStack = [];
+        this.state.redoStack = [];
+        this.drawAll();
+    }
+
+    setupEventListeners() {
+        this.elements.tabRgbCube.addEventListener('click', () => this.setColorSpace('RGB_CUBE'));
+        this.elements.tabHslCone.addEventListener('click', () => this.setColorSpace('HSL_DI_CONE'));
+
+        const mainContainer = document.querySelector('.color-editor-layout');
+        mainContainer.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            this.deselectAll();
+            this.hideContextMenu();
+        });
+
+        document.addEventListener('click', () => this.hideContextMenu());
+
+        const resizeObserver = new ResizeObserver(() => this.setupCanvases());
+        resizeObserver.observe(document.querySelector('.w-full'));
+
+        Object.values(this.elements.interactiveCanvases).forEach(canvas => {
+            canvas.addEventListener('mouseenter', () => { this.state.isMouseInCanvas = true; });
+            canvas.addEventListener('mouseleave', () => { this.state.isMouseInCanvas = false; });
+        });
+
+        this.elements.hsNodesContainer.addEventListener('mousedown', (e) => this.handleMouseDown(e, 'hs'));
+        this.elements.lightnessNodesContainer.addEventListener('mousedown', (e) => this.handleMouseDown(e, 'lightness'));
+        this.elements.alphaNodesContainer.addEventListener('mousedown', (e) => this.handleMouseDown(e, 'alpha'));
+
+        document.addEventListener('keydown', (e) => this.handleKeyDown(e));
+
+        this.elements.lightnessInput.addEventListener('change', (e) => this.handleInputChange(e, 'lightness'));
+        this.elements.alphaInput.addEventListener('change', (e) => this.handleInputChange(e, 'alpha'));
+
+        const colorChangeHandler = () => this.handleColorInputChange();
+        this.elements.rgbRInput.addEventListener('change', colorChangeHandler);
+        this.elements.rgbGInput.addEventListener('change', colorChangeHandler);
+        this.elements.rgbBInput.addEventListener('change', colorChangeHandler);
+        this.elements.hslHInput.addEventListener('change', colorChangeHandler);
+        this.elements.hslSInput.addEventListener('change', colorChangeHandler);
+        this.elements.hslLInput.addEventListener('change', colorChangeHandler);
+
+        const presetEventHandler = (e) => {
+            const target = e.target.closest('.preset-item');
+            if (target) {
+                if (e.type === 'click') {
+                    this.handlePresetClick(target);
+                } else if (e.type === 'contextmenu' && target.dataset.custom === 'true') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    this.showContextMenu(e, target.dataset.name, target.dataset.type);
+                }
+            }
+        };
+
+        this.elements.colorsPresetsWrapper.addEventListener('click', presetEventHandler);
+        this.elements.colorsPresetsWrapper.addEventListener('contextmenu', presetEventHandler);
+        this.elements.colormapsPresetsWrapper.addEventListener('click', presetEventHandler);
+        this.elements.colormapsPresetsWrapper.addEventListener('contextmenu', presetEventHandler);
+
+        this.elements.selectButton.addEventListener('click', () => {
+            const output = { points: [] };
+            output.points = this.state.points.map(p => {
+                const color = this.abstractToRgb(p.hsPos.u, p.hsPos.v, p.lightness);
+                const rgb = this.clampColor(color);
+                return {
+                    pos: parseFloat(p.pos.toFixed(4)),
+                    alpha: parseFloat(p.alpha.toFixed(4)),
+                    color: [rgb.r, rgb.g, rgb.b],
+                    order: p.order
+                };
+            });
+            console.log(JSON.stringify(output, null, 2));
+        });
+    }
+
+    showContextMenu(e, name, type) {
+        this.hideContextMenu();
+        const menu = this.elements.contextMenu;
+        menu.innerHTML = '';
+
+        const actions = {'Rename': () => this.handlePresetAction('rename', name, type), 'Delete': () => this.handlePresetAction('delete', name, type)};
+
+        for(const [label, action] of Object.entries(actions)) {
+            const item = document.createElement('button');
+            item.className = 'context-menu-item';
+            item.textContent = label;
+            item.onclick = action;
+            menu.appendChild(item);
+        }
+
+        menu.style.left = `${e.clientX}px`;
+        menu.style.top = `${e.clientY}px`;
+        menu.classList.remove('hidden');
+    }
+
+    hideContextMenu() {
+        this.elements.contextMenu.classList.add('hidden');
+    }
+
+    async handlePresetAction(action, name, type) {
+        this.hideContextMenu();
+        if (action === 'delete') {
+            const confirm = await this.showPrompt(`Delete "${name}"?`, ['Delete', 'Cancel']);
+            if (confirm === 'Delete') {
+                if (type === 'custom_colors') delete this.customColors[name];
+                if (type === 'custom_colormaps') delete this.customColormaps[name];
+                this.saveCustomPresets(type);
+                this.populatePresets();
+            }
+        } else if (action === 'rename') {
+            const newName = await this.showPrompt(`Rename "${name}"`, ['Rename', 'Cancel'], { value: name });
+            if (newName && newName !== name) {
+                const presetList = type === 'custom_colors' ? this.customColors : this.customColormaps;
+                if (presetList[newName]) {
+                    this.showPrompt(`"${newName}" already exists.`, ['OK']);
+                    return;
+                }
+                presetList[newName] = presetList[name];
+                delete presetList[name];
+                this.saveCustomPresets(type);
+                this.populatePresets();
+            }
+        }
+    }
+
+    async promptAndSaveNewPreset(type, defaultName = '') {
+        const newName = await this.showPrompt('Save as:', ['Save', 'Cancel'], { placeholder: 'Enter a name', value: defaultName });
+        if (!newName) return false;
+
+        if (type === 'custom_colors') {
+            const lastPoint = this.getLastSelectedPoint();
+            if(!lastPoint) return false;
+            const color = this.abstractToRgb(lastPoint.hsPos.u, lastPoint.hsPos.v, lastPoint.lightness);
+            const rgb = this.clampColor(color);
+            this.customColors[newName] = { rgb: [rgb.r, rgb.g, rgb.b], alpha: lastPoint.alpha };
+        } else {
+            const points = this.state.points.map(p => {
+                const color = this.abstractToRgb(p.hsPos.u, p.hsPos.v, p.lightness);
+                const rgb = this.clampColor(color);
+                return { pos: p.pos, alpha: p.alpha, color: [rgb.r, rgb.g, rgb.b], order: p.order };
+            });
+            this.customColormaps[newName] = { points };
+            this.state.loadedColormapName = newName;
+            this.state.loadedColormapType = type;
+            this.setDirty(false);
+        }
+
+        this.saveCustomPresets(type);
+        this.populatePresets();
+        return true;
+    }
+
+    markAsDirty() {
+        this.setDirty(true);
+        this.saveState();
+    }
+
+    populatePresets() {
+        this.elements.colorsPresetsWrapper.innerHTML = '';
+        this.elements.colormapsPresetsWrapper.innerHTML = '';
+
+        const createCategory = (title, onAdd) => {
+            const header = document.createElement('div');
+            header.className = 'preset-category-header';
+            const titleEl = document.createElement('div');
+            titleEl.className = 'preset-category-title';
+            titleEl.textContent = title;
+            const addBtn = document.createElement('button');
+            addBtn.className = 'add-preset-btn';
+            addBtn.textContent = '+';
+            addBtn.onclick = onAdd;
+            header.appendChild(titleEl);
+            header.appendChild(addBtn);
+            return header;
+        };
+
+        const renderItems = (container, items, type, isCustom) => {
+            Object.keys(items).sort().forEach(name => {
+                const item = document.createElement('div');
+                item.className = 'preset-item';
+                item.dataset.name = name;
+                item.dataset.type = type;
+                item.dataset.custom = isCustom;
+
+                const icon = document.createElement('canvas');
+                icon.className = 'preset-icon';
+
+                if (type.includes('colormap')) {
+                    icon.width = 64;
+                    icon.height = 16;
+                } else {
+                    icon.width = 16;
+                    icon.height = 16;
+                }
+
+                const nameSpan = document.createElement('span');
+                nameSpan.textContent = name;
+
+                item.appendChild(icon);
+                item.appendChild(nameSpan);
+                container.appendChild(item);
+
+                // This is the corrected condition
+                if (type === 'named_colors' || type === 'custom_colors') {
+                    const colorData = items[name];
+                    const rgb = isCustom ? colorData.rgb : colorData;
+                    this.drawColorIcon(icon, rgb);
+                } else {
+                    this.drawColormapIcon(icon, items[name].points, this.namedColors, this.customColors);
+                }
+            });
+        };
+
+        const colorsItemsContainer = document.createElement('div');
+        colorsItemsContainer.className = 'preset-items-container';
+        this.elements.colorsPresetsWrapper.appendChild(createCategory('Colors', () => this.promptAndSaveNewPreset('custom_colors')));
+        this.elements.colorsPresetsWrapper.appendChild(colorsItemsContainer);
+        renderItems(colorsItemsContainer, this.namedColors, 'named_colors', false);
+        renderItems(colorsItemsContainer, this.customColors, 'custom_colors', true);
+
+        const colormapsItemsContainer = document.createElement('div');
+        colormapsItemsContainer.className = 'preset-items-container';
+        this.elements.colormapsPresetsWrapper.appendChild(createCategory('Colormaps', () => this.promptAndSaveNewPreset('custom_colormaps')));
+        this.elements.colormapsPresetsWrapper.appendChild(colormapsItemsContainer);
+        renderItems(colormapsItemsContainer, this.namedColormaps, 'named_colormaps', false);
+        renderItems(colormapsItemsContainer, this.customColormaps, 'custom_colormaps', true);
+    }
+
+    drawColormapIcon(canvas, pointsData, namedColors, customColors) {
+        // Step 1: Convert the raw icon data into the full, complex point objects
+        // that the main rendering engine expects. This process mirrors the working
+        // logic from the `loadColormap` function.
+        const tempPoints = pointsData.map(p => {
+            let rgbArray = [0, 0, 0];
+            if (typeof p.color === 'string') {
+                rgbArray = namedColors[p.color] || (customColors[p.color] ? customColors[p.color].rgb : [0, 0, 0]);
+            } else if (Array.isArray(p.color)) {
+                rgbArray = p.color;
+            }
+
+            const { hsPos, lightness } = this.convertRgbToCurrentColorspace(rgbArray[0] / 255, rgbArray[1] / 255, rgbArray[2] / 255);
+            
+            return {
+                id: Math.random(),
+                hsPos: hsPos,
+                originalHsPos: { ...hsPos },
+                lightness: lightness,
+                alpha: p.alpha ?? 1.0,
+                pos: p.pos,
+                order: 1,
+            };
+        }).sort((a, b) => a.pos - b.pos);
+
+        // Step 2: Temporarily replace the main editor's state with these new points.
+        const originalPoints = this.state.points;
+        this.state.points = tempPoints;
+
+        // Step 3: Execute the exact same drawing logic as the main preview,
+        // but directed at the small icon canvas.
+        const ctx = canvas.getContext('2d');
+        const { width, height } = canvas;
+        this.drawCheckerboard(ctx);
+
+        if (this.state.points.length > 0) {
+            for (let i = 0; i < width; i++) {
+                const t = i / (width - 1);
+                const props = this.getInterpolatedPropertiesAt(t);
+                if (!props) continue;
+
+                const clamped = this.clampAbstractPoint(props.u, props.v, props.lightness);
+                const color = this.abstractToRgb(clamped.u, clamped.v, props.lightness);
+                const { r, g, b } = this.clampColor(color);
+
+                ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${props.alpha})`;
+                ctx.fillRect(i, 0, 1, height);
+            }
+        }
+
+        // Step 4: Crucially, restore the editor's original state.
+        this.state.points = originalPoints;
+    }
+
+
+    showPrompt(title, buttons, inputConfig = null) {
+        return new Promise(resolve => {
+            const { modalOverlay, modalTitle, modalInputContainer, modalInput, modalButtons } = this.elements;
+
+            modalTitle.textContent = title;
+            modalButtons.innerHTML = '';
+
+            if (inputConfig) {
+                modalInput.value = inputConfig.value || '';
+                modalInput.placeholder = inputConfig.placeholder || '';
+                modalInputContainer.classList.remove('hidden');
+            } else {
+                modalInputContainer.classList.add('hidden');
+            }
+
+            buttons.forEach(btnLabel => {
+                const btn = document.createElement('button');
+                btn.className = `modal-button ${btnLabel === 'Save' || btnLabel === 'Delete' || btnLabel === 'Rename' ? 'modal-button-primary' : 'modal-button-secondary'}`;
+                btn.textContent = btnLabel;
+                btn.onclick = () => {
+                    modalOverlay.classList.add('hidden');
+                    resolve(inputConfig ? modalInput.value : btnLabel);
+                };
+                modalButtons.appendChild(btn);
+            });
+
+            modalOverlay.classList.remove('hidden');
+            if (inputConfig) modalInput.focus();
+        });
+    }
+
+    drawColorIcon(canvas, rgb) {
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+
     
-    this.sortPoints();
-    this.updateTabs();
-    this.drawAll();
-}
 
-undo() {
-    if (this.state.undoStack.length === 0) return;
+    createPointFromRgb(r, g, b, alpha, pos, order) {
+        const { hsPos, lightness } = this.convertRgbToCurrentColorspace(r, g, b);
+        return {
+            id: Date.now() + Math.random(),
+            hsPos,
+            originalHsPos: { ...hsPos },
+            lightness,
+            alpha,
+            pos,
+            order,
+        };
+    }
 
-    const currentSnapshot = this.createSnapshot();
-    this.state.redoStack.push(currentSnapshot);
-    
-    const previousSnapshot = this.state.undoStack.pop();
-    this.restoreState(previousSnapshot);
-}
-
-redo() {
-    if (this.state.redoStack.length === 0) return;
-
-    const currentSnapshot = this.createSnapshot();
-    this.state.undoStack.push(currentSnapshot);
-
-    const nextSnapshot = this.state.redoStack.pop();
-    this.restoreState(nextSnapshot);
-}
+    convertRgbToCurrentColorspace(r, g, b) {
+        if (this.state.colorSpace === 'RGB_CUBE') {
+            return {
+                hsPos: this.rgbCubeRgbToAbstract({ r, g, b }),
+                lightness: (r + g + b) / 3
+            };
+        } else {
+            const hsl = this.rgbToHsl(r, g, b);
+            return {
+                hsPos: this.rgbToHslDiConeAbstract(r, g, b),
+                lightness: hsl.l
+            };
+        }
+    }
 
     sortPoints() {
         this.state.points.sort((a, b) => a.pos - b.pos || a.id - b.id);
     }
-    
+
     deselectAll() {
         if (this.state.selectedPointIds.size > 0) {
             this.state.selectedPointIds.clear();
@@ -105,169 +696,25 @@ redo() {
         }
     }
 
-    initializeDOM() {
-    this.elements = {
-        tabRgbCube: document.getElementById('tab-rgb-cube'),
-        tabHslCone: document.getElementById('tab-hsl-cone'),
-        hsBgCanvas: document.getElementById('hs-bg-canvas'),
-        hsNodesContainer: document.getElementById('hs-nodes-container'),
-        lightnessBgCanvas: document.getElementById('lightness-bg-canvas'),
-        lightnessNodesContainer: document.getElementById('lightness-nodes-container'),
-        alphaBgCanvas: document.getElementById('alpha-bg-canvas'),
-        alphaNodesContainer: document.getElementById('alpha-nodes-container'),
-        colormapPreviewCanvas: document.getElementById('colormap-preview-canvas'),
-        colorReadoutContainer: document.getElementById('color-readout-container'),
-        interactiveCanvases: {}
-    };
-
-    const lightnessContainer = document.getElementById('lightness-value').parentElement;
-    const alphaContainer = document.getElementById('alpha-value').parentElement;
-    const colorContainer = this.elements.colorReadoutContainer;
-
-    const lightnessField = this._createLabeledInput(lightnessContainer, 'Lightness', 'lightness-input');
-    const alphaField = this._createLabeledInput(alphaContainer, 'Alpha', 'alpha-input');
-    const colorField = this._createLabeledInput(colorContainer, 'Color', 'color-input');
-
-    this.elements.lightnessInput = lightnessField.input;
-    this.elements.alphaInput = alphaField.input;
-    this.elements.colorInput = colorField.input;
-    this.elements.colorLabel = colorField.label;
-
-    this.elements.lightnessInput.addEventListener('change', (e) => this.handleInputChange(e, 'lightness'));
-    this.elements.alphaInput.addEventListener('change', (e) => this.handleInputChange(e, 'alpha'));
-    this.elements.colorInput.addEventListener('change', (e) => this.handleInputChange(e, 'color'));
-
-    this.createInteractiveCanvas(this.elements.hsNodesContainer, 'hs');
-    this.createInteractiveCanvas(this.elements.lightnessNodesContainer, 'lightness');
-    this.createInteractiveCanvas(this.elements.alphaNodesContainer, 'alpha');
-}
-
-    const lightnessParent = document.getElementById('lightness-value').parentElement;
-    this.elements.lightnessInput = this._createEditableInput('lightness-input', lightnessParent);
-
-    const alphaParent = document.getElementById('alpha-value').parentElement;
-    this.elements.alphaInput = this._createEditableInput('alpha-input', alphaParent);
-
-    this.elements.colorInput = this._createEditableInput('color-input', this.elements.colorReadoutContainer);
-
-    this.elements.lightnessInput.addEventListener('change', (e) => this.handleInputChange(e, 'lightness'));
-    this.elements.alphaInput.addEventListener('change', (e) => this.handleInputChange(e, 'alpha'));
-    this.elements.colorInput.addEventListener('change', (e) => this.handleInputChange(e, 'color'));
-
-    this.createInteractiveCanvas(this.elements.hsNodesContainer, 'hs');
-    this.createInteractiveCanvas(this.elements.lightnessNodesContainer, 'lightness');
-    this.createInteractiveCanvas(this.elements.alphaNodesContainer, 'alpha');
-}
-
-handleInputChange(e, type) {
-    const value = e.target.value;
-    if (this.state.selectedPointIds.size === 0) return;
-
-    let success = false;
-
-    switch (type) {
-        case 'lightness':
-        case 'alpha': {
-            const numValue = parseFloat(value);
-            if (!isNaN(numValue) && numValue >= 0 && numValue <= 1) {
-                this.saveState();
-                this.state.points.forEach(p => {
-                    if (this.state.selectedPointIds.has(p.id)) {
-                        p[type] = numValue;
-                        if (type === 'lightness') {
-                            this.constrainPointToValidArea(p);
-                        }
-                    }
-                });
-                success = true;
-            }
-            break;
-        }
-        case 'color': {
-            if (this.state.colorSpace === 'RGB_CUBE') {
-                const match = value.match(/rgb\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)/);
-                if (match) {
-                    this.saveState();
-                    const r = Math.max(0, Math.min(255, parseInt(match[1], 10))) / 255;
-                    const g = Math.max(0, Math.min(255, parseInt(match[2], 10))) / 255;
-                    const b = Math.max(0, Math.min(255, parseInt(match[3], 10))) / 255;
-                    
-                    const newHsPos = this.rgbCubeRgbToAbstract({ r, g, b });
-                    const newLightness = (r + g + b) / 3;
-
-                    this.state.points.forEach(p => {
-                        if (this.state.selectedPointIds.has(p.id)) {
-                            p.hsPos = { ...newHsPos };
-                            p.originalHsPos = { ...newHsPos };
-                            p.lightness = newLightness;
-                        }
-                    });
-                    success = true;
-                }
-            } else { // HSL_DI_CONE
-                const match = value.match(/hsl\(\s*(\d+)\s*,\s*(\d+)%\s*,\s*(\d+)%\s*\)/);
-                if (match) {
-                    this.saveState();
-                    const h = Math.max(0, Math.min(360, parseInt(match[1], 10))) / 360;
-                    const s = Math.max(0, Math.min(100, parseInt(match[2], 10))) / 100;
-                    const l = Math.max(0, Math.min(100, parseInt(match[3], 10))) / 100;
-
-                    const { r, g, b } = this.hslToRgb(h, s, l);
-                    const newHsPos = this.rgbToHslDiConeAbstract(r, g, b);
-
-                    this.state.points.forEach(p => {
-                        if (this.state.selectedPointIds.has(p.id)) {
-                            p.hsPos = { ...newHsPos };
-                            p.originalHsPos = { ...newHsPos };
-                            p.lightness = l;
-                        }
-                    });
-                    success = true;
-                }
-            }
-            break;
-        }
-    }
-
-    if (success) {
-        const lastSelectedPoint = this.getLastSelectedPoint();
-        if (lastSelectedPoint) {
-            this.state.viewLightness = lastSelectedPoint.lightness;
-            this.state.viewAlpha = lastSelectedPoint.alpha;
-        }
-    }
-    
-    this.drawAll();
-}
-
-    createInteractiveCanvas(container, type) {
-        const canvas = document.createElement('canvas');
-        canvas.className = `interactive-canvas ${type}-interactive`;
-        canvas.dataset.type = type;
-        container.appendChild(canvas);
-        this.elements.interactiveCanvases[type] = canvas;
-    }
-
     setupCanvases() {
+        const lightnessInteractiveCanvas = this.elements.interactiveCanvases['lightness'];
+        const alphaInteractiveCanvas = this.elements.interactiveCanvases['alpha'];
+
         const otherCanvases = [
             { c: this.elements.lightnessBgCanvas, container: this.elements.lightnessBgCanvas.parentElement },
+            { c: lightnessInteractiveCanvas, container: lightnessInteractiveCanvas.parentElement },
             { c: this.elements.alphaBgCanvas, container: this.elements.alphaBgCanvas.parentElement },
+            { c: alphaInteractiveCanvas, container: alphaInteractiveCanvas.parentElement },
             { c: this.elements.colormapPreviewCanvas, container: this.elements.colormapPreviewCanvas.parentElement },
+            { c: this.elements.selectedColorPreviewCanvas, container: this.elements.selectedColorPreviewCanvas.parentElement }
         ];
 
         otherCanvases.forEach(item => {
+            if (!item.c || !item.container) return;
             const { clientWidth, clientHeight } = item.container;
             if (item.c.width !== clientWidth || item.c.height !== clientHeight) {
                 item.c.width = clientWidth;
                 item.c.height = clientHeight;
-            }
-            const type = item.c.id.split('-')[0];
-            if (this.elements.interactiveCanvases[type]) {
-                const interactiveCanvas = this.elements.interactiveCanvases[type];
-                if (interactiveCanvas.width !== clientWidth || interactiveCanvas.height !== clientHeight) {
-                    interactiveCanvas.width = clientWidth;
-                    interactiveCanvas.height = clientHeight;
-                }
             }
         });
 
@@ -282,6 +729,7 @@ handleInputChange(e, type) {
         size = Math.floor(size / C.CHECKERBOARD_SIZE) * C.CHECKERBOARD_SIZE;
 
         [hsBgCanvas, hsInteractiveCanvas].forEach(canvas => {
+            if (!canvas) return;
             canvas.width = size;
             canvas.height = size;
             canvas.style.width = `${size}px`;
@@ -289,381 +737,423 @@ handleInputChange(e, type) {
             canvas.style.left = `${(containerWidth - size) / 2}px`;
             canvas.style.top = `${(containerHeight - size) / 2}px`;
         });
-        
+
         this.drawAll();
     }
 
     setColorSpace(newSpace) {
-    const oldSpace = this.state.colorSpace;
-    if (newSpace === oldSpace) return;
+        const oldSpace = this.state.colorSpace;
+        if (newSpace === oldSpace) return;
 
-    this.saveState();
+        this.markAsDirty();
 
-    this.state.points.forEach(point => {
-        let colorRgb;
-        if (oldSpace === 'RGB_CUBE') {
-            colorRgb = this.rgbCubeAbstractToRgb(point.hsPos.u, point.hsPos.v, point.lightness);
-        } else {
-            colorRgb = this.hslDiConeAbstractToRgb(point.hsPos.u, point.hsPos.v, point.lightness);
-        }
-        
-        let newHsPos;
-        let newLightness;
+        this.state.points.forEach(point => {
+            let colorRgb;
+            if (oldSpace === 'RGB_CUBE') {
+                colorRgb = this.rgbCubeAbstractToRgb(point.hsPos.u, point.hsPos.v, point.lightness);
+            } else {
+                colorRgb = this.hslDiConeAbstractToRgb(point.hsPos.u, point.hsPos.v, point.lightness);
+            }
 
-        if (newSpace === 'RGB_CUBE') {
-            newHsPos = this.rgbCubeRgbToAbstract(colorRgb);
-            newLightness = (colorRgb.r + colorRgb.g + colorRgb.b) / 3;
-        } else {
-            const hsl = this.rgbToHsl(colorRgb.r, colorRgb.g, colorRgb.b);
-            newHsPos = this.rgbToHslDiConeAbstract(colorRgb.r, colorRgb.g, colorRgb.b);
-            newLightness = hsl.l;
-        }
-        
-        point.hsPos = newHsPos;
-        point.originalHsPos = { ...newHsPos };
-        point.lightness = newLightness;
-    });
+            let newHsPos, newLightness;
+            if (newSpace === 'RGB_CUBE') {
+                newHsPos = this.rgbCubeRgbToAbstract(colorRgb);
+                newLightness = (colorRgb.r + colorRgb.g + colorRgb.b) / 3;
+            } else {
+                const hsl = this.rgbToHsl(colorRgb.r, colorRgb.g, colorRgb.b);
+                newHsPos = this.rgbToHslDiConeAbstract(colorRgb.r, colorRgb.g, colorRgb.b);
+                newLightness = hsl.l;
+            }
 
-    const lastSelectedPoint = this.getLastSelectedPoint();
-    if (lastSelectedPoint) {
-        this.state.viewLightness = lastSelectedPoint.lightness;
-        this.state.viewAlpha = lastSelectedPoint.alpha;
-    }
-
-    this.state.colorSpace = newSpace;
-    this.updateTabs();
-    this.drawAll();
-}
-
-    setupEventListeners() {
-    this.elements.tabRgbCube.addEventListener('click', () => this.setColorSpace('RGB_CUBE'));
-    this.elements.tabHslCone.addEventListener('click', () => this.setColorSpace('HSL_DI_CONE'));
-
-    const mainContainer = document.querySelector('.w-full.h-\\[400px\\]');
-    if (mainContainer) {
-        mainContainer.addEventListener('contextmenu', (e) => {
-            e.preventDefault();
-            this.deselectAll();
+            point.hsPos = newHsPos;
+            point.originalHsPos = { ...newHsPos };
+            point.lightness = newLightness;
         });
+
+        const lastSelectedPoint = this.getLastSelectedPoint();
+        if (lastSelectedPoint) {
+            this.state.viewLightness = lastSelectedPoint.lightness;
+            this.state.viewAlpha = lastSelectedPoint.alpha;
+        }
+
+        this.state.colorSpace = newSpace;
+        this.updateTabs();
+        this.drawAll();
     }
-
-    const resizeObserver = new ResizeObserver(() => this.setupCanvases());
-    resizeObserver.observe(document.querySelector('.w-full'));
-    
-    Object.values(this.elements.interactiveCanvases).forEach(canvas => {
-        canvas.addEventListener('mouseenter', () => { this.state.isMouseInCanvas = true; });
-        canvas.addEventListener('mouseleave', () => { this.state.isMouseInCanvas = false; });
-    });
-    
-    this.elements.hsNodesContainer.addEventListener('mousedown', (e) => this.handleMouseDown(e, 'hs'));
-    this.elements.lightnessNodesContainer.addEventListener('mousedown', (e) => this.handleMouseDown(e, 'lightness'));
-    this.elements.alphaNodesContainer.addEventListener('mousedown', (e) => this.handleMouseDown(e, 'alpha'));
-
-    document.addEventListener('keydown', (e) => this.handleKeyDown(e));
-}
 
     handleMouseDown(e, type) {
-    if (e.button === 2) return;
-    e.preventDefault();
-    e.stopPropagation();
+        if (e.button === 2) return;
+        e.preventDefault();
+        e.stopPropagation();
 
-    const now = Date.now();
-    const canvas = this.elements.interactiveCanvases[type];
-    if (!canvas) return;
-    
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
-    const x = (e.clientX - rect.left) * scaleX;
-    const y = (e.clientY - rect.top) * scaleY;
-    
-    const startPos = { x, y };
-    let hasDragged = false;
-    
-    let hitPoint = null;
-    let hitLine = false;
-    
-    if (type === 'hs') {
-        hitPoint = this.findHitPointHS(x, y);
-    } else {
-        const result = this.findHitPointSlider(x, y, type);
-        hitPoint = result.hitPoint;
-        hitLine = result.hitLine;
-    }
+        const now = Date.now();
+        const canvas = this.elements.interactiveCanvases[type];
+        if (!canvas) return;
 
-    const timeSinceLastClick = now - this.lastClickTime;
-    if (timeSinceLastClick < C.DBL_CLICK_SPEED && hitPoint && hitPoint.id === this.lastClickTarget) {
-        this.clickCount++;
-    } else {
-        this.clickCount = 1;
-    }
-    this.lastClickTime = now;
-    this.lastClickTarget = hitPoint ? hitPoint.id : null;
+        const rect = canvas.getBoundingClientRect();
+        const scaleX = canvas.width / rect.width;
+        const scaleY = canvas.height / rect.height;
+        const x = (e.clientX - rect.left) * scaleX;
+        const y = (e.clientY - rect.top) * scaleY;
 
-    if (hitPoint) {
-        this.state.viewLightness = hitPoint.lightness;
-        this.state.viewAlpha = hitPoint.alpha;
-        
-        const isCtrlPressed = e.ctrlKey || e.metaKey;
-        const isShiftPressed = e.shiftKey;
-        if (!this.state.selectedPointIds.has(hitPoint.id) && !isCtrlPressed && !isShiftPressed) {
-            this.state.selectedPointIds.clear();
-            this.state.selectedPointIds.add(hitPoint.id);
-            this.state.lastSelectedPointId = hitPoint.id;
-        }
-    }
+        const startPos = { x, y };
+        let hasDragged = false;
+        let hitPoint = null;
+        let hitLine = false;
 
-    this.state.activeDrag.type = type;
-    this.state.activeDrag.element = canvas;
-    this.state.activeDrag.pointId = hitPoint ? hitPoint.id : null;
-    
-    if (hitPoint) {
-        const offsets = new Map();
         if (type === 'hs') {
-            this.state.activeDrag.startX = x;
-            this.state.activeDrag.startY = y;
-            this.state.activeDrag.initialPointPositions = new Map();
-            const { scale, offsetX, offsetY } = this.state.transform;
-            this.state.points.forEach(p => {
-                if (this.state.selectedPointIds.has(p.id)) {
-                    const p_x = p.hsPos.u * scale + offsetX;
-                    const p_y = p.hsPos.v * scale + offsetY;
-                    this.state.activeDrag.initialPointPositions.set(p.id, { x: p_x, y: p_y });
-                }
-            });
+            hitPoint = this.findHitPointHS(x, y);
         } else {
-            this.state.points.forEach(p => {
-                if (this.state.selectedPointIds.has(p.id)) {
-                    offsets.set(p.id, {
-                        lightness: p.lightness - hitPoint.lightness,
-                        alpha: p.alpha - hitPoint.alpha,
-                        pos: p.pos - hitPoint.pos
-                    });
-                }
-            });
-            this.state.activeDrag.offsets = offsets;
+            const result = this.findHitPointSlider(x, y, type);
+            hitPoint = result.hitPoint;
+            hitLine = result.hitLine;
         }
-    } else if (hitLine) {
-        this.state.activeDrag.type = type + '-line';
-    } else {
-        this.state.selectedPointIds.clear();
-        this.state.lastSelectedPointId = null;
+
+        const timeSinceLastClick = now - this.lastClickTime;
+        if (timeSinceLastClick < C.DBL_CLICK_SPEED && hitPoint && hitPoint.id === this.lastClickTarget) {
+            this.clickCount++;
+        } else {
+            this.clickCount = 1;
+        }
+        this.lastClickTime = now;
+        this.lastClickTarget = hitPoint ? hitPoint.id : null;
+
+        if (hitPoint) {
+            this.state.viewLightness = hitPoint.lightness;
+            this.state.viewAlpha = hitPoint.alpha;
+            const isCtrlPressed = e.ctrlKey || e.metaKey;
+            const isShiftPressed = e.shiftKey;
+            if (!this.state.selectedPointIds.has(hitPoint.id) && !isCtrlPressed && !isShiftPressed) {
+                this.state.selectedPointIds.clear();
+                this.state.selectedPointIds.add(hitPoint.id);
+                this.state.lastSelectedPointId = hitPoint.id;
+            }
+        }
+
+        this.state.activeDrag.type = type;
+        this.state.activeDrag.element = canvas;
+        this.state.activeDrag.pointId = hitPoint ? hitPoint.id : null;
+
+        if (hitPoint) {
+            const offsets = new Map();
+            if (type === 'hs') {
+                this.state.activeDrag.startX = x;
+                this.state.activeDrag.startY = y;
+                this.state.activeDrag.initialPointPositions = new Map();
+                const { scale, offsetX, offsetY } = this.state.transform;
+                this.state.points.forEach(p => {
+                    if (this.state.selectedPointIds.has(p.id)) {
+                        const p_x = p.hsPos.u * scale + offsetX;
+                        const p_y = p.hsPos.v * scale + offsetY;
+                        this.state.activeDrag.initialPointPositions.set(p.id, { x: p_x, y: p_y });
+                    }
+                });
+            } else {
+                this.state.points.forEach(p => {
+                    if (this.state.selectedPointIds.has(p.id)) {
+                        offsets.set(p.id, {
+                            lightness: p.lightness - hitPoint.lightness,
+                            alpha: p.alpha - hitPoint.alpha,
+                            pos: p.pos - hitPoint.pos
+                        });
+                    }
+                });
+                this.state.activeDrag.offsets = offsets;
+            }
+        } else if (hitLine) {
+            this.state.activeDrag.type = type + '-line';
+        } else {
+            this.state.selectedPointIds.clear();
+            this.state.lastSelectedPointId = null;
+        }
+
+        this.drawAll();
+
+        const onMove = (moveEvent) => {
+            const currentX = (moveEvent.clientX - rect.left) * scaleX;
+            const currentY = (moveEvent.clientY - rect.top) * scaleY;
+            const dist = Math.sqrt((currentX - startPos.x)**2 + (currentY - startPos.y)**2);
+            if (!hasDragged && dist > C.DRAG_THRESHOLD) {
+                hasDragged = true;
+                this.markAsDirty();
+            }
+            if (this.state.activeDrag.type) {
+                this.handleMouseMove(moveEvent);
+            }
+        };
+
+        const onEnd = (upEvent) => {
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('mouseup', onEnd);
+            if (!hasDragged) {
+                this.handleClick(x, y, type, hitPoint, upEvent);
+            }
+            this.state.activeDrag = { type: null, element: null, pointId: null, offsets: null };
+        };
+
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onEnd);
     }
 
-    this.drawAll();
+    handleClick(x, y, type, hitPoint, e) {
+        const { shiftKey, ctrlKey, metaKey } = e;
+        const isCtrlPressed = ctrlKey || metaKey;
 
-    const onMove = (moveEvent) => {
-        const currentX = (moveEvent.clientX - rect.left) * scaleX;
-        const currentY = (moveEvent.clientY - rect.top) * scaleY;
-        const dist = Math.sqrt((currentX - startPos.x) ** 2 + (currentY - startPos.y) ** 2);
-        if (!hasDragged && dist > C.DRAG_THRESHOLD) {
-            hasDragged = true;
-        }
-        if (this.state.activeDrag.type) {
-            this.handleMouseMove(moveEvent);
-        }
-    };
-    
-    const onEnd = () => {
-        document.removeEventListener('mousemove', onMove);
-        document.removeEventListener('mouseup', onEnd);
-        
-        if (hasDragged) {
-            if (this.state.activeDrag.pointId) this.saveState();
-        } else {
-            this.handleClick(x, y, type, hitPoint, e);
-        }
-        
-        this.state.activeDrag = { type: null, element: null, pointId: null, offsets: null };
-    };
-    
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onEnd);
-}
+        if (hitPoint) {
+            const { selectedPointIds } = this.state;
+            const pointId = hitPoint.id;
 
-handleClick(x, y, type, hitPoint, e) {
-    const { shiftKey, ctrlKey, metaKey } = e;
-    const isCtrlPressed = ctrlKey || metaKey;
-
-    if (hitPoint) {
-        const { selectedPointIds } = this.state;
-        const pointId = hitPoint.id;
-
-        if (this.clickCount === 3) {
-            this.state.points.forEach(p => selectedPointIds.add(p.id));
-        } else if (this.clickCount === 2) {
-            const hitIndex = this.state.points.findIndex(p => p.id === pointId);
-            selectedPointIds.clear();
-            const indicesToSelect = [hitIndex - 1, hitIndex, hitIndex + 1];
-            indicesToSelect.forEach(index => {
-                if (index >= 0 && index < this.state.points.length) {
-                    selectedPointIds.add(this.state.points[index].id);
+            if (this.clickCount === 3) {
+                this.state.points.forEach(p => selectedPointIds.add(p.id));
+            } else if (this.clickCount === 2) {
+                const hitIndex = this.state.points.findIndex(p => p.id === pointId);
+                selectedPointIds.clear();
+                const indicesToSelect = [hitIndex - 1, hitIndex, hitIndex + 1];
+                indicesToSelect.forEach(index => {
+                    if (index >= 0 && index < this.state.points.length) {
+                        selectedPointIds.add(this.state.points[index].id);
+                    }
+                });
+            } else if (isCtrlPressed) {
+                if (selectedPointIds.has(pointId)) {
+                    if (selectedPointIds.size > 1) selectedPointIds.delete(pointId);
+                } else {
+                    selectedPointIds.add(pointId);
                 }
-            });
-        } else if (isCtrlPressed) {
-            if (selectedPointIds.has(pointId)) {
-                if (selectedPointIds.size > 1) selectedPointIds.delete(pointId);
+            } else if (shiftKey) {
+                selectedPointIds.add(pointId);
             } else {
+                selectedPointIds.clear();
                 selectedPointIds.add(pointId);
             }
-        } else if (shiftKey) {
-            selectedPointIds.add(pointId);
-        } else {
-            selectedPointIds.clear();
-            selectedPointIds.add(pointId);
+            this.state.lastSelectedPointId = pointId;
+        } else if (type === 'hs') {
+            this.createNewPointHS(x, y);
+        } else if (type === 'lightness' || type === 'alpha') {
+            const canvas = this.elements.interactiveCanvases[type];
+            const value = Math.max(0, Math.min(1, 1 - (y / canvas.height)));
+            if (type === 'lightness') {
+                this.state.viewLightness = value;
+            } else {
+                this.state.viewAlpha = value;
+            }
         }
-        this.state.lastSelectedPointId = pointId;
-    } else if (type === 'hs') {
-        this.createNewPointHS(x, y);
-    } else if (type === 'lightness' || type === 'alpha') {
-        const canvas = this.elements.interactiveCanvases[type];
-        const value = Math.max(0, Math.min(1, 1 - (y / canvas.height)));
-        if (type === 'lightness') {
-            this.state.viewLightness = value;
-        } else {
-            this.state.viewAlpha = value;
-        }
+        this.drawAll();
     }
-    this.drawAll();
-}
 
-_createEditableInput(id, parent) {
-    const input = document.createElement('input');
-    input.type = 'text';
-    input.id = id;
-    input.className = 'font-mono text-base bg-gray-700 text-center rounded-md w-full py-1 px-2 focus:outline-none focus:ring-2 focus:ring-blue-500';
-    parent.innerHTML = '';
-    parent.appendChild(input);
-    return input;
-}
+    handleInputChange(e, type) {
+        const value = e.target.value;
+        if (this.state.selectedPointIds.size === 0) return;
+        let success = false;
+        if (type === 'lightness' || type === 'alpha') {
+            const numValue = parseFloat(value);
+            if (!isNaN(numValue) && numValue >= 0 && numValue <= 1) {
+                this.markAsDirty();
+                this.state.points.forEach(p => {
+                    if (this.state.selectedPointIds.has(p.id)) {
+                        p[type] = numValue;
+                        if (type === 'lightness') {
+                            this.constrainPointToValidArea(p);
+                        }
+                    }
+                });
+                success = true;
+            }
+        }
+        if (success) {
+            const lastSelectedPoint = this.getLastSelectedPoint();
+            if (lastSelectedPoint) {
+                this.state.viewLightness = lastSelectedPoint.lightness;
+                this.state.viewAlpha = lastSelectedPoint.alpha;
+            }
+        }
+        this.drawAll();
+    }
+
+    handleColorInputChange() {
+        if (this.state.selectedPointIds.size === 0) return;
+        let r, g, b, h, s, l;
+        let success = false;
+        if (this.state.colorSpace === 'RGB_CUBE') {
+            r = parseInt(this.elements.rgbRInput.value, 10);
+            g = parseInt(this.elements.rgbGInput.value, 10);
+            b = parseInt(this.elements.rgbBInput.value, 10);
+            if (isNaN(r) || isNaN(g) || isNaN(b)) return;
+            this.markAsDirty();
+            r = Math.max(0, Math.min(255, r)) / 255;
+            g = Math.max(0, Math.min(255, g)) / 255;
+            b = Math.max(0, Math.min(255, b)) / 255;
+            const newHsPos = this.rgbCubeRgbToAbstract({ r, g, b });
+            const newLightness = (r + g + b) / 3;
+            this.state.points.forEach(p => {
+                if (this.state.selectedPointIds.has(p.id)) {
+                    p.hsPos = { ...newHsPos };
+                    p.originalHsPos = { ...newHsPos };
+                    p.lightness = newLightness;
+                }
+            });
+            success = true;
+        } else {
+            h = parseFloat(this.elements.hslHInput.value);
+            s = parseFloat(this.elements.hslSInput.value);
+            l = parseFloat(this.elements.hslLInput.value);
+            if (isNaN(h) || isNaN(s) || isNaN(l)) return;
+            this.markAsDirty();
+            h = Math.max(0, Math.min(1, h));
+            s = Math.max(0, Math.min(1, s));
+            l = Math.max(0, Math.min(1, l));
+            const rgb = this.hslToRgb(h, s, l);
+            const newHsPos = this.rgbToHslDiConeAbstract(rgb.r, rgb.g, rgb.b);
+            this.state.points.forEach(p => {
+                if (this.state.selectedPointIds.has(p.id)) {
+                    p.hsPos = { ...newHsPos };
+                    p.originalHsPos = { ...newHsPos };
+                    p.lightness = l;
+                }
+            });
+            success = true;
+        }
+        if (success) {
+            const lastSelectedPoint = this.getLastSelectedPoint();
+            if (lastSelectedPoint) {
+                this.state.viewLightness = lastSelectedPoint.lightness;
+                this.state.viewAlpha = lastSelectedPoint.alpha;
+            }
+        }
+        this.drawAll();
+    }
+
+    createInteractiveCanvas(container, type) {
+        const canvas = document.createElement('canvas');
+        canvas.className = `interactive-canvas ${type}-interactive`;
+        canvas.dataset.type = type;
+        container.appendChild(canvas);
+        this.elements.interactiveCanvases[type] = canvas;
+    }
 
     handleMouseMove(e) {
-    if (!this.state.activeDrag.type) return;
-    e.preventDefault();
-    const { type, element, pointId } = this.state.activeDrag;
-    const canvas = element;
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
-    const x = (e.clientX - rect.left) * scaleX;
-    const y = (e.clientY - rect.top) * scaleY;
-    
-    if (type.endsWith('-line')) {
-        this.handleLineDrag(y, canvas.height, type);
-    } else if (pointId) {
-        this.handlePointDrag(x, y, canvas, type);
+        if (!this.state.activeDrag.type) return;
+        e.preventDefault();
+        const { type, element, pointId } = this.state.activeDrag;
+        const canvas = element;
+        const rect = canvas.getBoundingClientRect();
+        const scaleX = canvas.width / rect.width;
+        const scaleY = canvas.height / rect.height;
+        const x = (e.clientX - rect.left) * scaleX;
+        const y = (e.clientY - rect.top) * scaleY;
+
+        if (type.endsWith('-line')) {
+            this.handleLineDrag(y, canvas.height, type);
+        } else if (pointId) {
+            this.handlePointDrag(x, y, canvas, type);
+        }
+        this.drawAll();
     }
-    this.drawAll();
-}
 
-  
-
-  rgbCubeRgbToAbstract(rgb) {
-    const u = (rgb.r - rgb.g) / Math.sqrt(2);
-    const v = (rgb.r + rgb.g - 2 * rgb.b) / Math.sqrt(6);
-    return { u, v };
-}
-
-  rgbToHslDiConeAbstract(r, g, b) {
-    const hsl = this.rgbToHsl(r, g, b);
-    const radiusAtL = 1 - Math.abs(2 * hsl.l - 1);
-    const s_abstract = hsl.s * radiusAtL;
-    const angle = hsl.h * 2 * Math.PI;
-    const u = s_abstract * Math.cos(angle);
-    const v = s_abstract * Math.sin(angle);
-    return { u, v };
-}
-
-  hslDiConeAbstractToRgb(u, v, lightness) {
-    const h = (Math.atan2(v, u) / (2 * Math.PI) + 1) % 1;
-    const s_abstract = Math.sqrt(u * u + v * v);
-    const l = lightness;
-    const radiusAtL = 1 - Math.abs(2 * l - 1);
-
-    if (radiusAtL < 1e-9) {
-        return { r: l, g: l, b: l };
+    rgbCubeRgbToAbstract(rgb) {
+        const u = (rgb.r - rgb.g) / Math.sqrt(2);
+        const v = (rgb.r + rgb.g - 2 * rgb.b) / Math.sqrt(6);
+        return { u, v };
     }
-    
-    const s_real = s_abstract / radiusAtL;
-    return this.hslToRgb(h, s_real, l);
-}
-    
+
+    rgbToHslDiConeAbstract(r, g, b) {
+        const hsl = this.rgbToHsl(r, g, b);
+        const radiusAtL = 1 - Math.abs(2 * hsl.l - 1);
+        const s_abstract = hsl.s * radiusAtL;
+        const angle = hsl.h * 2 * Math.PI;
+        const u = s_abstract * Math.cos(angle);
+        const v = s_abstract * Math.sin(angle);
+        return { u, v };
+    }
+
+    hslDiConeAbstractToRgb(u, v, lightness) {
+        const h = (Math.atan2(v, u) / (2 * Math.PI) + 1) % 1;
+        const s_abstract = Math.sqrt(u * u + v * v);
+        const l = lightness;
+        const radiusAtL = 1 - Math.abs(2 * l - 1);
+
+        if (radiusAtL < 1e-9) {
+            return { r: l, g: l, b: l };
+        }
+
+        const s_real = s_abstract / radiusAtL;
+        return this.hslToRgb(h, s_real, l);
+    }
+
     updateTabs() {
         this.elements.tabRgbCube.classList.toggle('active', this.state.colorSpace === 'RGB_CUBE');
         this.elements.tabHslCone.classList.toggle('active', this.state.colorSpace === 'HSL_DI_CONE');
     }
 
     handleKeyDown(e) {
-    const activeEl = document.activeElement;
-    const isEditingText = activeEl && activeEl.tagName === 'INPUT';
-    const isCtrl = e.ctrlKey || e.metaKey;
+        const activeEl = document.activeElement;
+        const isEditingText = activeEl && activeEl.tagName === 'INPUT';
+        const isCtrl = e.ctrlKey || e.metaKey;
 
-    if (isCtrl && e.key === 'z') {
-        e.preventDefault();
-        this.undo();
-        return;
-    }
-    if (isCtrl && e.key === 'y') {
-        e.preventDefault();
-        this.redo();
-        return;
-    }
+        if (isCtrl && e.key === 'z') {
+            e.preventDefault();
+            this.undo();
+            return;
+        }
+        if (isCtrl && e.key === 'y') {
+            e.preventDefault();
+            this.redo();
+            return;
+        }
 
-    if (isEditingText) {
+        if (isEditingText) {
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                activeEl.blur();
+            }
+            return;
+        }
+
+        if (['0', '1', '2', '3', '4'].includes(e.key)) {
+            if (this.state.isMouseInCanvas && this.state.selectedPointIds.size > 0) {
+                this.markAsDirty();
+                const newOrder = parseInt(e.key, 10);
+                this.state.points.forEach(point => {
+                    if (this.state.selectedPointIds.has(point.id)) {
+                        point.order = newOrder;
+                    }
+                });
+                this.drawAll();
+            }
+            return;
+        }
+
         if (e.key === 'Escape') {
             e.preventDefault();
-            activeEl.blur();
+            this.deselectAll();
+            return;
         }
-        return;
-    }
 
-    if (['0', '1', '2', '3', '4'].includes(e.key)) {
-        if (this.state.isMouseInCanvas && this.state.selectedPointIds.size > 0) {
-            this.saveState();
-            const newOrder = parseInt(e.key, 10);
-            this.state.points.forEach(point => {
-                if (this.state.selectedPointIds.has(point.id)) {
-                    point.order = newOrder;
+        if (e.key === 'Delete' || e.key === 'Backspace') {
+            if (this.state.selectedPointIds.size > 0) {
+                this.markAsDirty();
+                this.state.points = this.state.points.filter(point => !this.state.selectedPointIds.has(point.id));
+                this.state.selectedPointIds.clear();
+                this.state.lastSelectedPointId = null;
+                if (this.state.points.length === 0) {
+                    const initialPointId = Date.now();
+                    const initialPoint = {
+                        id: initialPointId,
+                        hsPos: { u: 0, v: 0 },
+                        originalHsPos: { u: 0, v: 0 },
+                        lightness: 0.5,
+                        alpha: 1.0,
+                        pos: 0.5,
+                        order: 1,
+                    };
+                    this.state.points.push(initialPoint);
+                    this.state.selectedPointIds.add(initialPoint.id);
+                    this.state.lastSelectedPointId = initialPoint.id;
                 }
-            });
-            this.drawAll();
-        }
-        return;
-    }
-
-    if (e.key === 'Escape') {
-        e.preventDefault();
-        this.deselectAll();
-        return;
-    }
-
-    if (e.key === 'Delete' || e.key === 'Backspace') {
-        if (this.state.selectedPointIds.size > 0) {
-            this.saveState();
-            
-            this.state.points = this.state.points.filter(point => !this.state.selectedPointIds.has(point.id));
-            this.state.selectedPointIds.clear();
-            this.state.lastSelectedPointId = null;
-
-            if (this.state.points.length === 0) {
-                const initialPointId = Date.now();
-                const initialPoint = {
-                    id: initialPointId,
-                    hsPos: { u: 0, v: 0 },
-                    originalHsPos: { u: 0, v: 0 },
-                    lightness: 0.5,
-                    alpha: 1.0,
-                    pos: 0.5,
-                    order: 1,
-                };
-                this.state.points.push(initialPoint);
-                this.state.selectedPointIds.add(initialPoint.id);
-                this.state.lastSelectedPointId = initialPoint.id;
+                this.drawAll();
             }
-            this.drawAll();
         }
     }
-}
 
     findSnapPosition(currentY, canvasHeight, sliderType, ignorePointId = null) {
         let snappedY = currentY;
@@ -705,62 +1195,62 @@ _createEditableInput(id, parent) {
     }
 
     getInterpolatedPropertiesAt(t) {
-    if (this.state.points.length === 0) return null;
-    if (this.state.points.length === 1) {
-        const { hsPos, lightness, alpha, order } = this.state.points[0];
-        return { u: hsPos.u, v: hsPos.v, lightness, alpha, order };
-    }
-
-    let p1 = this.state.points[0];
-    if (t <= p1.pos) {
-        const { hsPos, lightness, alpha, order } = p1;
-        return { u: hsPos.u, v: hsPos.v, lightness, alpha, order };
-    }
-
-    let p2 = this.state.points[this.state.points.length - 1];
-    if (t >= p2.pos) {
-        const { hsPos, lightness, alpha, order } = p2;
-        return { u: hsPos.u, v: hsPos.v, lightness, alpha, order };
-    }
-
-    for (let i = 0; i < this.state.points.length - 1; i++) {
-        p1 = this.state.points[i];
-        p2 = this.state.points[i + 1];
-        if (t >= p1.pos && t <= p2.pos) {
-            break;
+        if (this.state.points.length === 0) return null;
+        if (this.state.points.length === 1) {
+            const { hsPos, lightness, alpha, order } = this.state.points[0];
+            return { u: hsPos.u, v: hsPos.v, lightness, alpha, order };
         }
+
+        let p1 = this.state.points[0];
+        if (t <= p1.pos) {
+            const { hsPos, lightness, alpha, order } = p1;
+            return { u: hsPos.u, v: hsPos.v, lightness, alpha, order };
+        }
+
+        let p2 = this.state.points[this.state.points.length - 1];
+        if (t >= p2.pos) {
+            const { hsPos, lightness, alpha, order } = p2;
+            return { u: hsPos.u, v: hsPos.v, lightness, alpha, order };
+        }
+
+        for (let i = 0; i < this.state.points.length - 1; i++) {
+            p1 = this.state.points[i];
+            p2 = this.state.points[i + 1];
+            if (t >= p1.pos && t <= p2.pos) {
+                break;
+            }
+        }
+
+        const p0 = this.state.points[this.state.points.indexOf(p1) - 1] || p1;
+        const p3 = this.state.points[this.state.points.indexOf(p2) + 1] || p2;
+
+        const segmentDuration = p2.pos - p1.pos;
+        if (segmentDuration < 1e-6) {
+            const { hsPos, lightness, alpha, order } = p1;
+            return { u: hsPos.u, v: hsPos.v, lightness, alpha, order };
+        }
+        const tLocal = (t - p1.pos) / segmentDuration;
+
+        let props;
+        const order = p1.order === 0 ? 0 : Math.max(p1.order, p2.order);
+
+        switch (order) {
+            case 0:
+                props = this._interpolateStep(p1, p2, tLocal);
+                break;
+            case 2:
+            case 3:
+            case 4:
+                props = this._interpolateCubic(p0, p1, p2, p3, tLocal);
+                break;
+            case 1:
+            default:
+                props = this._interpolateLinear(p1, p2, tLocal);
+                break;
+        }
+        props.order = p1.order;
+        return props;
     }
-
-    const p0 = this.state.points[this.state.points.indexOf(p1) - 1] || p1;
-    const p3 = this.state.points[this.state.points.indexOf(p2) + 1] || p2;
-
-    const segmentDuration = p2.pos - p1.pos;
-    if (segmentDuration < 1e-6) {
-        const { hsPos, lightness, alpha, order } = p1;
-        return { u: hsPos.u, v: hsPos.v, lightness, alpha, order };
-    }
-    const tLocal = (t - p1.pos) / segmentDuration;
-
-    let props;
-    const order = p1.order === 0 ? 0 : Math.max(p1.order, p2.order);
-
-    switch (order) {
-        case 0:
-            props = this._interpolateStep(p1, p2, tLocal);
-            break;
-        case 2:
-        case 3:
-        case 4:
-            props = this._interpolateCubic(p0, p1, p2, p3, tLocal);
-            break;
-        case 1:
-        default:
-            props = this._interpolateLinear(p1, p2, tLocal);
-            break;
-    }
-    props.order = p1.order;
-    return props;
-}
 
     _interpolateLinear(p1, p2, t) {
         const lerp = (a, b, t) => a + (b - a) * t;
@@ -800,20 +1290,6 @@ _createEditableInput(id, parent) {
         };
     }
 
-    updateValidPointsCache(width, height, lightness) {
-        this.validPointsCache = new Set();
-        for (let j = 0; j < height; j++) {
-            for (let i = 0; i < width; i++) {
-                const au = (i - this.state.transform.offsetX) / this.state.transform.scale;
-                const av = (j - this.state.transform.offsetY) / this.state.transform.scale;
-                const {r, g, b} = this.abstractToRgb(au, av, lightness);
-                if (this.isValidColor(r, g, b)) {
-                    this.validPointsCache.add(`${i},${j}`);
-                }
-            }
-        }
-    }
-
     isValidColor(r, g, b) {
         return r >= -0.001 && r <= 1.001 && g >= -0.001 && g <= 1.001 && b >= -0.001 && b <= 1.001;
     }
@@ -845,9 +1321,9 @@ _createEditableInput(id, parent) {
         const { viewLightness, viewAlpha, colorSpace } = this.state;
         const width = this.elements.hsBgCanvas.width;
         const height = this.elements.hsBgCanvas.height;
-        
+
         if (width === 0 || height === 0) return;
-        
+
         const ctx = this.elements.hsBgCanvas.getContext('2d');
         ctx.clearRect(0, 0, width, height);
         this.drawCheckerboard(ctx);
@@ -855,7 +1331,7 @@ _createEditableInput(id, parent) {
         const scale = (colorSpace === 'RGB_CUBE')
             ? Math.min(width, height) / (Math.sqrt(2/3) * 2) * C.HS_PLANE_SCALE_FACTOR
             : Math.min(width, height) / 2 * C.HS_PLANE_SCALE_FACTOR;
-            
+
         this.state.transform.scale = scale;
         this.state.transform.offsetX = width / 2;
         this.state.transform.offsetY = height / 2;
@@ -869,7 +1345,7 @@ _createEditableInput(id, parent) {
                 const av = (j - this.state.transform.offsetY) / this.state.transform.scale;
                 const {r, g, b} = this.abstractToRgb(au, av, viewLightness);
                 const index = (j * width + i) * 4;
-                
+
                 if (this.isValidColor(r, g, b)) {
                     data[index] = Math.round(r * 255);
                     data[index + 1] = Math.round(g * 255);
@@ -887,10 +1363,6 @@ _createEditableInput(id, parent) {
         ctx.globalAlpha = viewAlpha;
         ctx.drawImage(tempCanvas, 0, 0);
         ctx.globalAlpha = 1.0;
-
-        if (colorSpace === 'RGB_CUBE') {
-            this.updateValidPointsCache(width, height, viewLightness);
-        }
     }
 
     drawHorizontalLine(ctx, y) {
@@ -926,7 +1398,7 @@ _createEditableInput(id, parent) {
                 const t = p1.pos + (j / numSteps) * segmentDuration;
                 const props = this.getInterpolatedPropertiesAt(t);
                 if (!props) continue;
-            
+
                 let x, y;
                 if (type === 'hs') {
                     const clamped = this.clampAbstractPoint(props.u, props.v, props.lightness);
@@ -936,7 +1408,7 @@ _createEditableInput(id, parent) {
                     x = t * ctx.canvas.width;
                     if (type === 'lightness') {
                         y = (1 - props.lightness) * ctx.canvas.height;
-                    } else { 
+                    } else {
                         y = (1 - props.alpha) * ctx.canvas.height;
                     }
                 }
@@ -948,10 +1420,10 @@ _createEditableInput(id, parent) {
                 }
             }
         }
-        
+
         ctx.strokeStyle = 'black';
         if (type !== 'hs') {
-            ctx.globalAlpha = 1.0; 
+            ctx.globalAlpha = 1.0;
             const gradient = ctx.createLinearGradient(0, 0, ctx.canvas.width, 0);
             const numGradientStops = Math.min(256, ctx.canvas.width);
             for (let i = 0; i <= numGradientStops; i++) {
@@ -966,62 +1438,62 @@ _createEditableInput(id, parent) {
             }
             ctx.strokeStyle = gradient;
         }
-        
+
         ctx.stroke();
         ctx.globalAlpha = 1.0;
     }
 
     drawHSElements() {
-    const canvas = this.elements.interactiveCanvases['hs'];
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    
-    if (this.state.points.length > 1) {
-        this.drawConnectingLine(ctx, 'hs');
+        const canvas = this.elements.interactiveCanvases['hs'];
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        if (this.state.points.length > 1) {
+            this.drawConnectingLine(ctx, 'hs');
+        }
+
+        this.state.points.forEach(point => {
+            const x = point.hsPos.u * this.state.transform.scale + this.state.transform.offsetX;
+            const y = point.hsPos.v * this.state.transform.scale + this.state.transform.offsetY;
+            const color = this.abstractToRgb(point.hsPos.u, point.hsPos.v, point.lightness);
+            const {r, g, b} = this.clampColor(color);
+
+            const isSelected = this.state.selectedPointIds.has(point.id);
+            const isLastSelected = point.id === this.state.lastSelectedPointId;
+            const isOnCurrentPlane = Math.abs(point.lightness - this.state.viewLightness) < 0.01;
+
+            ctx.save();
+
+            ctx.beginPath();
+            switch (point.order) {
+                case 0: this._drawCircle(ctx, x, y, C.NODE_RADIUS); break;
+                case 1: this._drawDroplet(ctx, x, y, C.NODE_RADIUS); break;
+                case 2: this._drawEye(ctx, x, y, C.NODE_RADIUS); break;
+                case 3: this._drawTriangle(ctx, x, y, C.NODE_RADIUS); break;
+                case 4: this._drawSquare(ctx, x, y, C.NODE_RADIUS); break;
+                default: this._drawCircle(ctx, x, y, C.NODE_RADIUS);
+            }
+
+            ctx.globalAlpha = point.alpha;
+            ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+            ctx.fill();
+
+            ctx.globalAlpha = 1.0;
+            if (isOnCurrentPlane) {
+                ctx.strokeStyle = isSelected ? C.COLOR_SELECTION_BLUE : 'black';
+                ctx.lineWidth = isLastSelected ? C.LINE_WIDTH_SELECTED : C.LINE_WIDTH_DEFAULT;
+                ctx.stroke();
+            } else {
+                ctx.setLineDash(C.DASHED_LINE_STYLE);
+                ctx.strokeStyle = isSelected ? C.COLOR_SELECTION_BLUE : 'black';
+                ctx.lineWidth = C.LINE_WIDTH_DEFAULT;
+                ctx.stroke();
+                ctx.setLineDash([]);
+            }
+            ctx.restore();
+        });
     }
-
-    this.state.points.forEach(point => {
-        const x = point.hsPos.u * this.state.transform.scale + this.state.transform.offsetX;
-        const y = point.hsPos.v * this.state.transform.scale + this.state.transform.offsetY;
-        const color = this.abstractToRgb(point.hsPos.u, point.hsPos.v, point.lightness);
-        const {r, g, b} = this.clampColor(color);
-
-        const isSelected = this.state.selectedPointIds.has(point.id);
-        const isLastSelected = point.id === this.state.lastSelectedPointId;
-        const isOnCurrentPlane = Math.abs(point.lightness - this.state.viewLightness) < 0.01;
-
-        ctx.save();
-        
-        ctx.beginPath();
-        switch (point.order) {
-            case 0: this._drawCircle(ctx, x, y, C.NODE_RADIUS); break;
-            case 1: this._drawDroplet(ctx, x, y, C.NODE_RADIUS); break;
-            case 2: this._drawEye(ctx, x, y, C.NODE_RADIUS); break;
-            case 3: this._drawTriangle(ctx, x, y, C.NODE_RADIUS); break;
-            case 4: this._drawSquare(ctx, x, y, C.NODE_RADIUS); break;
-            default: this._drawCircle(ctx, x, y, C.NODE_RADIUS);
-        }
-
-        ctx.globalAlpha = point.alpha;
-        ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
-        ctx.fill();
-
-        ctx.globalAlpha = 1.0;
-        if (isOnCurrentPlane) {
-            ctx.strokeStyle = isSelected ? C.COLOR_SELECTION_BLUE : 'black';
-            ctx.lineWidth = isLastSelected ? C.LINE_WIDTH_SELECTED : C.LINE_WIDTH_DEFAULT;
-            ctx.stroke();
-        } else {
-            ctx.setLineDash(C.DASHED_LINE_STYLE);
-            ctx.strokeStyle = isSelected ? C.COLOR_SELECTION_BLUE : 'black';
-            ctx.lineWidth = C.LINE_WIDTH_DEFAULT;
-            ctx.stroke();
-            ctx.setLineDash([]);
-        }
-        ctx.restore();
-    });
-}
 
     drawLightnessElements() {
         const canvas = this.elements.interactiveCanvases['lightness'];
@@ -1068,65 +1540,65 @@ _createEditableInput(id, parent) {
     }
 
     _drawJoukowsky(ctx, x, y, radius, q) {
-    const numPoints = 50;
-    const points = [];
-    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+        const numPoints = 50;
+        const points = [];
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
 
-    for (let i = 0; i <= numPoints; i++) {
-        const t = (i / numPoints) * 2 * Math.PI;
-        const cosT = Math.cos(t);
-        const sinT = Math.sin(t);
+        for (let i = 0; i <= numPoints; i++) {
+            const t = (i / numPoints) * 2 * Math.PI;
+            const cosT = Math.cos(t);
+            const sinT = Math.sin(t);
 
-        const den_term1 = 1 - q + q * cosT;
-        const den_term2 = q * sinT;
-        const denominator = den_term1 * den_term1 + den_term2 * den_term2;
+            const den_term1 = 1 - q + q * cosT;
+            const den_term2 = q * sinT;
+            const denominator = den_term1 * den_term1 + den_term2 * den_term2;
 
-        if (Math.abs(denominator) < 1e-9) continue;
+            if (Math.abs(denominator) < 1e-9) continue;
 
-        const px = q * sinT - (q * sinT) / denominator;
-        const py = q * cosT + den_term1 / denominator;
-        
-        points.push({ x: px, y: py });
-        if (px < minX) minX = px;
-        if (px > maxX) maxX = px;
-        if (py < minY) minY = py;
-        if (py > maxY) maxY = py;
+            const px = q * sinT - (q * sinT) / denominator;
+            const py = q * cosT + den_term1 / denominator;
+
+            points.push({ x: px, y: py });
+            if (px < minX) minX = px;
+            if (px > maxX) maxX = px;
+            if (py < minY) minY = py;
+            if (py > maxY) maxY = py;
+        }
+
+        const shapeHeight = maxY - minY;
+        const scale = (radius * 2.5) / shapeHeight;
+
+        const xOffset = (maxX + minX) / 2;
+        const yOffset = (maxY + minY) / 2;
+
+        ctx.beginPath();
+
+        const p0 = points[0];
+        ctx.moveTo(x + (p0.x - xOffset) * scale, y - (p0.y - yOffset) * scale);
+        for (let i = 1; i < points.length; i++) {
+            const p = points[i];
+            ctx.lineTo(x + (p.x - xOffset) * scale, y - (p.y - yOffset) * scale);
+        }
+
+        ctx.closePath();
     }
 
-    const shapeHeight = maxY - minY;
-    const scale = (radius * 2.5) / shapeHeight;
-
-    const xOffset = (maxX + minX) / 2;
-    const yOffset = (maxY + minY) / 2;
-    
-    ctx.beginPath();
-    
-    const p0 = points[0];
-    ctx.moveTo(x + (p0.x - xOffset) * scale, y - (p0.y - yOffset) * scale);
-    for (let i = 1; i < points.length; i++) {
-        const p = points[i];
-        ctx.lineTo(x + (p.x - xOffset) * scale, y - (p.y - yOffset) * scale);
+    _drawDroplet(ctx, x, y, radius) {
+        const q = 2 / 3;
+        this._drawJoukowsky(ctx, x, y, radius, q);
     }
-    
-    ctx.closePath();
-}
 
-_drawDroplet(ctx, x, y, radius) {
-    const q = 2 / 3;
-    this._drawJoukowsky(ctx, x, y, radius, q);
-}
+    _drawEye(ctx, x, y, radius) {
+        const a = 1.0;
+        const h = radius * 1.3;
+        const w = h / a;
 
-_drawEye(ctx, x, y, radius) {
-    const a = 1.0;
-    const h = radius * 1.3;
-    const w = h / a;
-
-    ctx.beginPath();
-    ctx.moveTo(x, y - h);
-    ctx.quadraticCurveTo(x + w, y, x, y + h);
-    ctx.quadraticCurveTo(x - w, y, x, y - h);
-    ctx.closePath();
-}
+        ctx.beginPath();
+        ctx.moveTo(x, y - h);
+        ctx.quadraticCurveTo(x + w, y, x, y + h);
+        ctx.quadraticCurveTo(x - w, y, x, y - h);
+        ctx.closePath();
+    }
 
     _drawTriangle(ctx, x, y, radius) {
         const r = radius * 1.4;
@@ -1151,7 +1623,7 @@ _drawEye(ctx, x, y, radius) {
             case 4: this._drawSquare(ctx, x, y, C.NODE_RADIUS); break;
             default: this._drawCircle(ctx, x, y, C.NODE_RADIUS);
         }
-        
+
         ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
         ctx.fill();
         ctx.strokeStyle = isSelected ? C.COLOR_SELECTION_BLUE : 'black';
@@ -1168,53 +1640,84 @@ _drawEye(ctx, x, y, radius) {
     }
 
     updateUIReadouts() {
-    const lastSelectedPoint = this.getLastSelectedPoint();
-    const activeElement = document.activeElement;
+        const lastSelectedPoint = this.getLastSelectedPoint();
+        const activeElement = document.activeElement;
 
-    if (this.elements.colorLabel) {
-        this.elements.colorLabel.textContent = this.state.colorSpace === 'RGB_CUBE' ? 'RGB' : 'HSL';
-    }
+        const isRgb = this.state.colorSpace === 'RGB_CUBE';
+        this.elements.rgbInputsContainer.classList.toggle('hidden', !isRgb);
+        this.elements.hslInputsContainer.classList.toggle('hidden', isRgb);
 
-    if (!lastSelectedPoint) {
         if (activeElement !== this.elements.lightnessInput) {
-            this.elements.lightnessInput.value = '--';
+            this.elements.lightnessInput.value = lastSelectedPoint ? lastSelectedPoint.lightness.toFixed(2) : '--';
         }
         if (activeElement !== this.elements.alphaInput) {
-            this.elements.alphaInput.value = '--';
+            this.elements.alphaInput.value = lastSelectedPoint ? lastSelectedPoint.alpha.toFixed(2) : '--';
         }
-        if (activeElement !== this.elements.colorInput) {
-            this.elements.colorInput.value = '';
+
+        const isEditingColor = [
+            this.elements.rgbRInput, this.elements.rgbGInput, this.elements.rgbBInput,
+            this.elements.hslHInput, this.elements.hslSInput, this.elements.hslLInput
+        ].includes(activeElement);
+
+        if (!lastSelectedPoint) {
+            if (!isEditingColor) {
+                this.elements.rgbRInput.value = '';
+                this.elements.rgbGInput.value = '';
+                this.elements.rgbBInput.value = '';
+                this.elements.hslHInput.value = '';
+                this.elements.hslSInput.value = '';
+                this.elements.hslLInput.value = '';
+            }
+            this.drawColormapPreview();
+            this.drawSelectedColorPreview();
+            return;
         }
+
+        if (!isEditingColor) {
+            const { lightness, hsPos } = lastSelectedPoint;
+            const color = this.abstractToRgb(hsPos.u, hsPos.v, lightness);
+
+            if (isRgb) {
+                const { r, g, b } = this.clampColor(color);
+                this.elements.rgbRInput.value = r;
+                this.elements.rgbGInput.value = g;
+                this.elements.rgbBInput.value = b;
+            } else {
+                const hsl = this.rgbToHsl(color.r, color.g, color.b);
+                this.elements.hslHInput.value = hsl.h.toFixed(2);
+                this.elements.hslSInput.value = hsl.s.toFixed(2);
+                this.elements.hslLInput.value = hsl.l.toFixed(2);
+            }
+        }
+
         this.drawColormapPreview();
-        return;
-    }
-
-    const { lightness, alpha, hsPos } = lastSelectedPoint;
-
-    if (activeElement !== this.elements.lightnessInput) {
-        this.elements.lightnessInput.value = lightness.toFixed(2);
-    }
-    if (activeElement !== this.elements.alphaInput) {
-        this.elements.alphaInput.value = alpha.toFixed(2);
+        this.drawSelectedColorPreview();
     }
     
-    if (activeElement !== this.elements.colorInput) {
-        const color = this.abstractToRgb(hsPos.u, hsPos.v, lightness);
+    drawSelectedColorPreview() {
+        const canvas = this.elements.selectedColorPreviewCanvas;
+        if (!canvas) return;
         
-        if (this.state.colorSpace === 'RGB_CUBE') {
-            const {r, g, b} = this.clampColor(color);
-            this.elements.colorInput.value = `rgb(${r},${g},${b})`;
-        } else {
-            const hsl = this.rgbToHsl(color.r, color.g, color.b);
-            const h = Math.round(hsl.h * 360);
-            const s = Math.round(hsl.s * 100);
-            const l = Math.round(hsl.l * 100);
-            this.elements.colorInput.value = `hsl(${h},${s}%,${l}%)`;
+        const { clientWidth, clientHeight } = canvas.parentElement;
+        if (canvas.width !== clientWidth || canvas.height !== clientHeight) {
+            canvas.width = clientWidth;
+            canvas.height = clientHeight;
+        }
+
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        this.drawCheckerboard(ctx);
+
+        const lastSelectedPoint = this.getLastSelectedPoint();
+        if (lastSelectedPoint) {
+            const { hsPos, lightness, alpha } = lastSelectedPoint;
+            const color = this.abstractToRgb(hsPos.u, hsPos.v, lightness);
+            const { r, g, b } = this.clampColor(color);
+
+            ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${alpha})`;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
         }
     }
-    
-    this.drawColormapPreview();
-}
 
     drawColormapPreview() {
         const previewCtx = this.elements.colormapPreviewCanvas.getContext('2d');
@@ -1233,56 +1736,56 @@ _drawEye(ctx, x, y, radius) {
             const clamped = this.clampAbstractPoint(props.u, props.v, props.lightness);
             const color = this.abstractToRgb(clamped.u, clamped.v, props.lightness);
             const { r, g, b } = this.clampColor(color);
-            
+
             previewCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${props.alpha})`;
             previewCtx.fillRect(i, 0, 1, height);
         }
     }
 
     abstractToRgb(u, v, lightness) {
-    if (this.state.colorSpace === 'HSL_DI_CONE') {
-        return this.hslDiConeAbstractToRgb(u, v, lightness);
+        if (this.state.colorSpace === 'HSL_DI_CONE') {
+            return this.hslDiConeAbstractToRgb(u, v, lightness);
+        }
+
+        const color = this.rgbCubeAbstractToRgb(u, v, lightness);
+        if (!this.isValidColor(color.r, color.g, color.b)) {
+            return { r: -1, g: -1, b: -1 };
+        }
+        return color;
     }
-    
-    const color = this.rgbCubeAbstractToRgb(u, v, lightness);
-    if (!this.isValidColor(color.r, color.g, color.b)) {
-        return { r: -1, g: -1, b: -1 };
-    }
-    return color;
-}
 
     clampAbstractPoint(u, v, lightness) {
-      if (this.state.colorSpace === 'HSL_DI_CONE') {
-          const radius = Math.sqrt(u * u + v * v);
-          const radiusAtL = 1 - Math.abs(2 * lightness - 1);
-          if (radius > radiusAtL) {
-              return { u: u / radius * radiusAtL, v: v / radius * radiusAtL };
-          }
-          return { u, v };
-      }
+        if (this.state.colorSpace === 'HSL_DI_CONE') {
+            const radius = Math.sqrt(u * u + v * v);
+            const radiusAtL = 1 - Math.abs(2 * lightness - 1);
+            if (radius > radiusAtL) {
+                return { u: u / radius * radiusAtL, v: v / radius * radiusAtL };
+            }
+            return { u, v };
+        }
 
-      let { r, g, b } = this.abstractToRgb(u, v, lightness);
-      if (this.isValidColor(r, g, b)) {
-          return { u, v };
-      }
+        let { r, g, b } = this.abstractToRgb(u, v, lightness);
+        if (this.isValidColor(r, g, b)) {
+            return { u, v };
+        }
 
-      let low = 0.0;
-      let high = 1.0;
-      const iterations = 10;
+        let low = 0.0;
+        let high = 1.0;
+        const iterations = 10;
 
-      for (let i = 0; i < iterations; i++) {
-          const mid = (low + high) / 2;
-          const testU = u * mid;
-          const testV = v * mid;
-          ({ r, g, b } = this.abstractToRgb(testU, testV, lightness));
-          if (this.isValidColor(r, g, b)) {
-              low = mid;
-          } else {
-              high = mid;
-          }
-      }
-      return { u: u * low, v: v * low };
-  }
+        for (let i = 0; i < iterations; i++) {
+            const mid = (low + high) / 2;
+            const testU = u * mid;
+            const testV = v * mid;
+            ({ r, g, b } = this.abstractToRgb(testU, testV, lightness));
+            if (this.isValidColor(r, g, b)) {
+                low = mid;
+            } else {
+                high = mid;
+            }
+        }
+        return { u: u * low, v: v * low };
+    }
 
     hslToRgb(h, s, l) {
         if (s === 0) {
@@ -1303,11 +1806,11 @@ _drawEye(ctx, x, y, radius) {
         const b = hue2rgb(p, q, h - 1 / 3);
         return { r, g, b };
     }
-    
+
     rgbToHsl(r, g, b) {
         const max = Math.max(r, g, b), min = Math.min(r, g, b);
         let h = 0, s = 0, l = (max + min) / 2;
-    
+
         if (max !== min) {
             const d = max - min;
             s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
@@ -1321,26 +1824,6 @@ _drawEye(ctx, x, y, radius) {
         return { h, s, l };
     }
 
-    abstractToRgb(u, v, lightness) {
-      if (this.state.colorSpace === 'HSL_DI_CONE') {
-          const s_abstract = Math.sqrt(u * u + v * v);
-          const radiusAtL = 1 - Math.abs(2 * lightness - 1);
-          
-          if (radiusAtL < 1e-9) {
-              if (Math.abs(s_abstract) > 1e-9) return { r: -1, g: -1, b: -1 };
-          } else if (s_abstract > radiusAtL + 1e-6) {
-              return { r: -1, g: -1, b: -1 };
-          }
-          return this.hslDiConeAbstractToRgb(u, v, lightness);
-      }
-      
-      const color = this.rgbCubeAbstractToRgb(u, v, lightness);
-      if (!this.isValidColor(color.r, color.g, color.b)) {
-          return { r: -1, g: -1, b: -1 };
-      }
-      return color;
-  }
-
     drawCheckerboard(ctx) {
         const width = ctx.canvas.width;
         const height = ctx.canvas.height;
@@ -1350,7 +1833,7 @@ _drawEye(ctx, x, y, radius) {
         ctx.fillStyle = C.COLOR_CHECKER_DARK;
         ctx.fillRect(0, 0, width, height);
         ctx.fillStyle = C.COLOR_CHECKER_LIGHT;
-        
+
         for (let i = 0; i < numSquaresH; i++) {
             for (let j = 0; j < numSquaresW; j++) {
                 if ((i + j) % 2 === 0) {
@@ -1359,70 +1842,70 @@ _drawEye(ctx, x, y, radius) {
             }
         }
     }
-    
+
     findClosestValidPoint(targetX, targetY, lightness) {
-      if (this.state.colorSpace === 'HSL_DI_CONE') {
-          const { scale, offsetX, offsetY } = this.state.transform;
-          const u = (targetX - offsetX) / scale;
-          const v = (targetY - offsetY) / scale;
-          const radius = Math.sqrt(u * u + v * v);
-          
-          const radiusAtL = 1 - Math.abs(2 * lightness - 1);
-          
-          if (radius > radiusAtL) {
-              const clampedU = u / radius * radiusAtL;
-              const clampedV = v / radius * radiusAtL;
-              return {
-                  x: clampedU * scale + offsetX,
-                  y: clampedV * scale + offsetY
-              };
-          }
-          return { x: targetX, y: targetY };
-      }
+        if (this.state.colorSpace === 'HSL_DI_CONE') {
+            const { scale, offsetX, offsetY } = this.state.transform;
+            const u = (targetX - offsetX) / scale;
+            const v = (targetY - offsetY) / scale;
+            const radius = Math.sqrt(u * u + v * v);
 
-      const { scale, offsetX, offsetY } = this.state.transform;
-      const u = (targetX - offsetX) / scale;
-      const v = (targetY - offsetY) / scale;
-      const { r, g, b } = this.abstractToRgb(u, v, lightness);
-      if (this.isValidColor(r, g, b)) {
-          return { x: targetX, y: targetY };
-      }
+            const radiusAtL = 1 - Math.abs(2 * lightness - 1);
 
-      const verticesRgb = this.getGamutVerticesRgb(lightness);
-      if (verticesRgb.length === 0) {
-          return { x: offsetX, y: offsetY };
-      }
+            if (radius > radiusAtL) {
+                const clampedU = u / radius * radiusAtL;
+                const clampedV = v / radius * radiusAtL;
+                return {
+                    x: clampedU * scale + offsetX,
+                    y: clampedV * scale + offsetY
+                };
+            }
+            return { x: targetX, y: targetY };
+        }
 
-      const verticesCanvas = verticesRgb.map(vRgb => {
-          const vUv = this.rgbCubeRgbToAbstract(vRgb);
-          return {
-              x: vUv.u * scale + offsetX,
-              y: vUv.v * scale + offsetY
-          };
-      });
+        const { scale, offsetX, offsetY } = this.state.transform;
+        const u = (targetX - offsetX) / scale;
+        const v = (targetY - offsetY) / scale;
+        const { r, g, b } = this.abstractToRgb(u, v, lightness);
+        if (this.isValidColor(r, g, b)) {
+            return { x: targetX, y: targetY };
+        }
 
-      if (verticesCanvas.length < 2) {
-          return verticesCanvas[0];
-      }
-      
-      const centroid = verticesCanvas.reduce((acc, v) => ({ x: acc.x + v.x, y: acc.y + v.y }), { x: 0, y: 0 });
-      centroid.x /= verticesCanvas.length;
-      centroid.y /= verticesCanvas.length;
+        const verticesRgb = this.getGamutVerticesRgb(lightness);
+        if (verticesRgb.length === 0) {
+            return { x: offsetX, y: offsetY };
+        }
 
-      verticesCanvas.sort((a, b) => {
-          const angleA = Math.atan2(a.y - centroid.y, a.x - centroid.x);
-          const angleB = Math.atan2(b.y - centroid.y, b.x - centroid.x);
-          return angleA - angleB;
-      });
+        const verticesCanvas = verticesRgb.map(vRgb => {
+            const vUv = this.rgbCubeRgbToAbstract(vRgb);
+            return {
+                x: vUv.u * scale + offsetX,
+                y: vUv.v * scale + offsetY
+            };
+        });
 
-      return this.findClosestPointOnPolygon({ x: targetX, y: targetY }, verticesCanvas);
-  }
-    
+        if (verticesCanvas.length < 2) {
+            return verticesCanvas[0];
+        }
+
+        const centroid = verticesCanvas.reduce((acc, v) => ({ x: acc.x + v.x, y: acc.y + v.y }), { x: 0, y: 0 });
+        centroid.x /= verticesCanvas.length;
+        centroid.y /= verticesCanvas.length;
+
+        verticesCanvas.sort((a, b) => {
+            const angleA = Math.atan2(a.y - centroid.y, a.x - centroid.x);
+            const angleB = Math.atan2(b.y - centroid.y, b.x - centroid.x);
+            return angleA - angleB;
+        });
+
+        return this.findClosestPointOnPolygon({ x: targetX, y: targetY }, verticesCanvas);
+    }
+
     getGamutVerticesRgb(B) {
         const vertices = [];
         const isUnit = val => val >= -1e-6 && val <= 1.0 + 1e-6;
         const isNear = (v1, v2) => Math.abs(v1.r - v2.r) < 1e-6 && Math.abs(v1.g - v2.g) < 1e-6 && Math.abs(v1.b - v2.b) < 1e-6;
-    
+
         const addVertex = (r, g, b) => {
             if (isUnit(r) && isUnit(g) && isUnit(b)) {
                 const newVert = { r, g, b };
@@ -1431,16 +1914,16 @@ _drawEye(ctx, x, y, radius) {
                 }
             }
         };
-        
+
         const B3 = 3 * B;
         addVertex(B3, 0, 0); addVertex(0, B3, 0); addVertex(0, 0, B3);
         addVertex(1, B3 - 1, 0); addVertex(1, 0, B3 - 1); addVertex(B3 - 1, 1, 0);
         addVertex(0, 1, B3 - 1); addVertex(B3 - 1, 0, 1); addVertex(0, B3 - 1, 1);
         addVertex(1, 1, B3 - 2); addVertex(1, B3 - 2, 1); addVertex(B3 - 2, 1, 1);
-    
+
         return vertices;
     }
-    
+
     rgbCubeAbstractToRgb(u, v, lightness) {
         const basis1 = { x: 1 / Math.sqrt(2), y: -1 / Math.sqrt(2), z: 0 };
         const basis2 = { x: 1 / Math.sqrt(6), y: 1 / Math.sqrt(6), z: -2 / Math.sqrt(6) };
@@ -1449,18 +1932,18 @@ _drawEye(ctx, x, y, radius) {
         const b = lightness + u * basis1.z + v * basis2.z;
         return {r, g, b};
     }
-    
+
     findClosestPointOnPolygon(p, vertices) {
         let closestPoint = null;
         let minDistanceSq = Infinity;
-    
+
         for (let i = 0; i < vertices.length; i++) {
             const v1 = vertices[i];
             const v2 = vertices[(i + 1) % vertices.length];
-    
+
             const dx = v2.x - v1.x;
             const dy = v2.y - v1.y;
-    
+
             let currentClosest;
             if (dx === 0 && dy === 0) {
                 currentClosest = v1;
@@ -1474,9 +1957,9 @@ _drawEye(ctx, x, y, radius) {
                     currentClosest = { x: v1.x + t * dx, y: v1.y + t * dy };
                 }
             }
-    
+
             const distSq = (p.x - currentClosest.x)**2 + (p.y - currentClosest.y)**2;
-    
+
             if (distSq < minDistanceSq) {
                 minDistanceSq = distSq;
                 closestPoint = currentClosest;
@@ -1500,11 +1983,9 @@ _drawEye(ctx, x, y, radius) {
                 return;
             }
         }
-        
+
         point.hsPos = { u: 0, v: 0 };
     }
-
-    
 
     findHitPointHS(x, y) {
         for (const point of this.state.points) {
@@ -1522,7 +2003,7 @@ _drawEye(ctx, x, y, radius) {
         const canvas = this.elements.interactiveCanvases[type];
         const lineY = type === 'lightness' ? (1 - this.state.viewLightness) * canvas.height : (1 - this.state.viewAlpha) * canvas.height;
         let hitLine = Math.abs(y - lineY) <= C.LINE_HIT_RADIUS;
-        
+
         let hitPoint = null;
         for (let i = 0; i < this.state.points.length; i++) {
             const point = this.state.points[i];
@@ -1537,44 +2018,19 @@ _drawEye(ctx, x, y, radius) {
         return { hitPoint, hitLine };
     }
 
-    _createLabeledInput(container, labelText, inputId) {
-    container.innerHTML = '';
-
-    const label = document.createElement('h3');
-    label.className = 'font-medium text-gray-400 text-xs';
-    label.textContent = labelText;
-
-    const input = document.createElement('input');
-    input.type = 'text';
-    input.id = inputId;
-    input.className = 'font-mono text-base bg-gray-700 text-center rounded-md w-full py-1 px-2 focus:outline-none focus:ring-2 focus:ring-blue-500';
-    
-    container.appendChild(label);
-    container.appendChild(input);
-    
-    return { label, input };
-}
-
-    
-
     createNewPointHS(x, y) {
         const au = (x - this.state.transform.offsetX) / this.state.transform.scale;
         const av = (y - this.state.transform.offsetY) / this.state.transform.scale;
-        
         const { viewLightness, viewAlpha } = this.state;
         const {r, g, b} = this.abstractToRgb(au, av, viewLightness);
-
         if (this.isValidColor(r, g, b)) {
-            this.saveState();
-
+            this.markAsDirty();
             const n = this.state.points.length;
-
             if (n > 0) {
                 this.state.points.forEach(p => {
                     p.pos = p.pos - (p.pos / n);
                 });
             }
-
             const newPoint = {
                 id: Date.now(),
                 hsPos: {u: au, v: av},
@@ -1584,120 +2040,110 @@ _drawEye(ctx, x, y, radius) {
                 pos: n === 0 ? 0.5 : 1.0,
                 order: 1,
             };
-            
             this.state.points.push(newPoint);
             this.sortPoints();
-
             this.state.selectedPointIds.clear();
             this.state.selectedPointIds.add(newPoint.id);
             this.state.lastSelectedPointId = newPoint.id;
-            
             this.drawAll();
         }
     }
-
     handleLineDrag(y, canvasHeight, dragType) {
-      const propertyName = dragType.startsWith('lightness') ? 'lightness' : 'alpha';
-      const viewProperty = dragType.startsWith('lightness') ? 'viewLightness' : 'viewAlpha';
+        const propertyName = dragType.startsWith('lightness') ? 'lightness' : 'alpha';
+        const viewProperty = dragType.startsWith('lightness') ? 'viewLightness' : 'viewAlpha';
 
-      const snappedY = this.findSnapPosition(y, canvasHeight, propertyName);
-      const targetValue = Math.max(0, Math.min(1, 1 - (snappedY / canvasHeight)));
-      
-      this.state[viewProperty] = targetValue;
-  }
+        const snappedY = this.findSnapPosition(y, canvasHeight, propertyName);
+        const targetValue = Math.max(0, Math.min(1, 1 - (snappedY / canvasHeight)));
+
+        this.state[viewProperty] = targetValue;
+        this.drawAll();
+    }
 
     handlePointDrag(x, y, canvas, dragType) {
-      const point = this.getPointById(this.state.activeDrag.pointId);
-      if (!point) return;
-      if (dragType === 'hs') {
-          this.handleHSPointDrag(x, y);
-      } else if (dragType === 'lightness' || dragType === 'alpha') {
-          this.handleSliderPointDrag(point, x, y, canvas, dragType);
-      }
-  }
-
-    
+        const point = this.getPointById(this.state.activeDrag.pointId);
+        if (!point) return;
+        if (dragType === 'hs') {
+            this.handleHSPointDrag(x, y);
+        } else if (dragType === 'lightness' || dragType === 'alpha') {
+            this.handleSliderPointDrag(point, x, y, canvas, dragType);
+        }
+        this.drawAll();
+    }
 
     handleHSPointDrag(x, y) {
-      const { startX, startY, initialPointPositions } = this.state.activeDrag;
-      const { scale, offsetX, offsetY } = this.state.transform;
+        const { startX, startY, initialPointPositions } = this.state.activeDrag;
+        const { scale, offsetX, offsetY } = this.state.transform;
 
-      const dx = x - startX;
-      const dy = y - startY;
+        const dx = x - startX;
+        const dy = y - startY;
 
-      this.state.points.forEach(p => {
-          if (initialPointPositions.has(p.id)) {
-              const initialPos = initialPointPositions.get(p.id);
-              const targetX = initialPos.x + dx;
-              const targetY = initialPos.y + dy;
+        this.state.points.forEach(p => {
+            if (initialPointPositions.has(p.id)) {
+                const initialPos = initialPointPositions.get(p.id);
+                const targetX = initialPos.x + dx;
+                const targetY = initialPos.y + dy;
 
-              const snapped = this.findClosestValidPoint(targetX, targetY, p.lightness);
-              
-              const snappedU = (snapped.x - offsetX) / scale;
-              const snappedV = (snapped.y - offsetY) / scale;
+                const snapped = this.findClosestValidPoint(targetX, targetY, p.lightness);
 
-              p.hsPos = { u: snappedU, v: snappedV };
-              p.originalHsPos = { u: snappedU, v: snappedV };
-          }
-      });
-  }
+                const snappedU = (snapped.x - offsetX) / scale;
+                const snappedV = (snapped.y - offsetY) / scale;
 
-  handleSliderPointDrag(point, x, y, canvas, dragType) {
-    const { offsets } = this.state.activeDrag;
-    
-    const snappedY = this.findSnapPosition(y, canvas.height, dragType, point.id);
-    const primaryValue = Math.max(0, Math.min(1, 1 - (snappedY / canvas.height)));
-    const primaryPos = Math.max(0, Math.min(1, x / canvas.width));
-    
-    let minPossibleValue = 0;
-    let maxPossibleValue = 1;
-    let minPossiblePos = 0;
-    let maxPossiblePos = 1;
-
-    for (const p of this.state.points) {
-        if (offsets.has(p.id)) {
-            const offset = offsets.get(p.id);
-            const offsetValue = offset[dragType];
-            minPossibleValue = Math.max(minPossibleValue, -offsetValue);
-            maxPossibleValue = Math.min(maxPossibleValue, 1 - offsetValue);
-            const offsetPos = offset.pos;
-            minPossiblePos = Math.max(minPossiblePos, -offsetPos);
-            maxPossiblePos = Math.min(maxPossiblePos, 1 - offsetPos);
-        }
+                p.hsPos = { u: snappedU, v: snappedV };
+                p.originalHsPos = { u: snappedU, v: snappedV };
+            }
+        });
     }
-    
-    const clampedPrimaryValue = Math.max(minPossibleValue, Math.min(maxPossibleValue, primaryValue));
-    const clampedPrimaryPos = Math.max(minPossiblePos, Math.min(maxPossiblePos, primaryPos));
 
-    for (const p of this.state.points) {
-        if (offsets.has(p.id)) {
-            const offset = offsets.get(p.id);
-            p[dragType] = clampedPrimaryValue + offset[dragType];
-            p.pos = clampedPrimaryPos + offset.pos;
+    handleSliderPointDrag(point, x, y, canvas, dragType) {
+        const { offsets } = this.state.activeDrag;
 
-            if (dragType === 'lightness') {
-                this.constrainPointToValidArea(p);
+        const snappedY = this.findSnapPosition(y, canvas.height, dragType, point.id);
+        const primaryValue = Math.max(0, Math.min(1, 1 - (snappedY / canvas.height)));
+        const primaryPos = Math.max(0, Math.min(1, x / canvas.width));
+
+        let minPossibleValue = 0;
+        let maxPossibleValue = 1;
+        let minPossiblePos = 0;
+        let maxPossiblePos = 1;
+
+        for (const p of this.state.points) {
+            if (offsets.has(p.id)) {
+                const offset = offsets.get(p.id);
+                const offsetValue = offset[dragType];
+                minPossibleValue = Math.max(minPossibleValue, -offsetValue);
+                maxPossibleValue = Math.min(maxPossibleValue, 1 - offsetValue);
+                const offsetPos = offset.pos;
+                minPossiblePos = Math.max(minPossiblePos, -offsetPos);
+                maxPossiblePos = Math.min(maxPossiblePos, 1 - offsetPos);
             }
         }
-    }
 
-    this.sortPoints();
+        const clampedPrimaryValue = Math.max(minPossibleValue, Math.min(maxPossibleValue, primaryValue));
+        const clampedPrimaryPos = Math.max(minPossiblePos, Math.min(maxPossiblePos, primaryPos));
 
-    if (dragType === 'lightness') {
-        this.state.viewLightness = point.lightness;
-        if (this.state.colorSpace === 'RGB_CUBE') {
-            this.updateValidPointsCache(
-                this.elements.hsBgCanvas.width,
-                this.elements.hsBgCanvas.height,
-                point.lightness
-            );
+        for (const p of this.state.points) {
+            if (offsets.has(p.id)) {
+                const offset = offsets.get(p.id);
+                p[dragType] = clampedPrimaryValue + offset[dragType];
+                p.pos = clampedPrimaryPos + offset.pos;
+
+                if (dragType === 'lightness') {
+                    this.constrainPointToValidArea(p);
+                }
+            }
         }
-    } else {
-        this.state.viewAlpha = point.alpha;
+
+        this.sortPoints();
+
+        if (dragType === 'lightness') {
+            this.state.viewLightness = point.lightness;
+        } else {
+            this.state.viewAlpha = point.alpha;
+        }
     }
-  }
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-    new ColorEditor();
+document.addEventListener('DOMContentLoaded', async () => {
+    const editor = new ColorEditor();
+    await editor.initialize();
 });
