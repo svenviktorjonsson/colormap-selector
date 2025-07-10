@@ -1,0 +1,23 @@
+{
+  "name": "colormap-selector",
+  "version": "1.0.0",
+  "description": "A popup colormap and color gradient editor component.",
+  "main": "ColormapSelector.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/svenviktorjonsson/colormap-selector.git"
+  },
+  "keywords": [
+    "color",
+    "picker",
+    "colormap",
+    "gradient",
+    "editor",
+    "javascript"
+  ],
+  "author": "Viktor Jonsson",
+  "license": "MIT"
+}
