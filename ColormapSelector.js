@@ -55,15 +55,7 @@ export default class ColormapSelector {
         }
     }
 
-    show(x, y) {
-        if (!this.wrapper) return;
-        this.wrapper.style.display = 'grid';
-        // Position the picker. A real implementation might have more complex logic here.
-        if (x !== undefined && y !== undefined) {
-            this.wrapper.style.left = `${x}px`;
-            this.wrapper.style.top = `${y}px`;
-        }
-    }
+    
 
     hide() {
         if (!this.wrapper) return;
@@ -75,8 +67,6 @@ export default class ColormapSelector {
         return this.wrapper;
     }
 
-    // --- Core Methods ---
-
     initializeDOM() {
         this.elements = { interactiveCanvases: {} };
 
@@ -85,6 +75,7 @@ export default class ColormapSelector {
             const el = document.createElement(tag);
             if (options.id) {
                 el.id = options.id;
+                // Store a reference in this.elements if it has an ID
                 const camelCaseId = options.id.replace(/-(\w)/g, (_, letter) => letter.toUpperCase());
                 this.elements[camelCaseId] = el;
             }
@@ -97,12 +88,27 @@ export default class ColormapSelector {
 
         // Main Wrapper
         this.wrapper = createEl('div', { id: 'colormap-selector-wrapper', className: 'color-editor-layout' });
-        this.wrapper.style.cssText = 'position: fixed; display: none; z-index: 1000; background-color: #1a202c; padding: 0.5rem; border-radius: 0.5rem; box-shadow: 0 10px 25px rgba(0,0,0,0.3); width: 800px; height: 400px;';
+        // Updated CSS positioning and sizing
+        this.wrapper.style.cssText = `
+            position: fixed; 
+            display: none; 
+            z-index: 1000; 
+            background-color: #1a202c; 
+            padding: 0.5rem; 
+            border-radius: 0.5rem; 
+            box-shadow: 0 10px 25px rgba(0,0,0,0.3); 
+            width: 50vw; 
+            height: 50vh; 
+            right: 0; 
+            bottom: 0;
+            min-height: 400px;
+            min-width: 600px;
+        `;
 
-        // --- Create all panels and containers ---
-        const hsPane = createEl('div', { id: 'hs-pane-wrapper' });
-        const lightnessPane = createEl('div', { id: 'lightness-wrapper' });
-        const alphaPane = createEl('div', { id: 'alpha-wrapper' });
+        // --- Create all panels and containers, replicating the original HTML structure ---
+        const hsPane = createEl('div', { id: 'hs-pane-wrapper', className: 'flex flex-col h-full min-w-0' });
+        const lightnessPane = createEl('div', { id: 'lightness-wrapper', className: 'flex flex-col min-h-0' });
+        const alphaPane = createEl('div', { id: 'alpha-wrapper', className: 'flex flex-col min-h-0' });
         this.elements.colorsPresetsWrapper = createEl('div', { id: 'colors-presets-wrapper', className: 'preset-wrapper' });
         this.elements.colormapsPresetsWrapper = createEl('div', { id: 'colormaps-presets-wrapper', className: 'preset-wrapper' });
         const selectedColorPane = createEl('div', { id: 'selected-color-section', className: 'control-section' });
@@ -110,30 +116,28 @@ export default class ColormapSelector {
 
         // --- Build HS Panel ---
         const hsHeader = createEl('div', { className: 'panel-header' });
-        const tabs = createEl('div');
         this.elements.tabRgbCube = createEl('button', { id: 'tab-rgb-cube', className: 'tab-button', text: 'RGB Cube' });
         this.elements.tabHslCone = createEl('button', { id: 'tab-hsl-cone', className: 'tab-button', text: 'HSL Di-Cone' });
-        tabs.append(this.elements.tabRgbCube, this.elements.tabHslCone);
-        hsHeader.append(tabs);
-        const hsContainer = createEl('div', { className: 'canvas-container' });
+        hsHeader.append(this.elements.tabRgbCube, this.elements.tabHslCone);
+        const hsContainer = createEl('div', { id: 'hs-canvas-container', className: 'canvas-container' });
         this.elements.hsBgCanvas = createEl('canvas', { id: 'hs-bg-canvas' });
-        this.elements.hsNodesContainer = createEl('div', { id: 'hs-nodes-container' });
+        this.elements.hsNodesContainer = createEl('div', { id: 'hs-nodes-container', className: 'absolute top-0 left-0 w-full h-full' });
         hsContainer.append(this.elements.hsBgCanvas, this.elements.hsNodesContainer);
         hsPane.append(hsHeader, hsContainer);
 
         // --- Build Lightness Panel ---
-        const lightnessHeader = createEl('div', { className: 'panel-header', text: 'LIGHTNESS' });
-        const lightnessContainer = createEl('div', { className: 'canvas-container' });
+        const lightnessHeader = createEl('h2', { className: 'panel-header', text: 'Lightness' });
+        const lightnessContainer = createEl('div', { id: 'lightness-slider-container', className: 'canvas-container' });
         this.elements.lightnessBgCanvas = createEl('canvas', { id: 'lightness-bg-canvas' });
-        this.elements.lightnessNodesContainer = createEl('div', { id: 'lightness-nodes-container' });
+        this.elements.lightnessNodesContainer = createEl('div', { id: 'lightness-nodes-container', className: 'absolute top-0 left-0 w-full h-full' });
         lightnessContainer.append(this.elements.lightnessBgCanvas, this.elements.lightnessNodesContainer);
         lightnessPane.append(lightnessHeader, lightnessContainer);
 
         // --- Build Alpha Panel ---
-        const alphaHeader = createEl('div', { className: 'panel-header', text: 'ALPHA' });
-        const alphaContainer = createEl('div', { className: 'canvas-container' });
+        const alphaHeader = createEl('h2', { className: 'panel-header', text: 'Alpha' });
+        const alphaContainer = createEl('div', { id: 'alpha-slider-container', className: 'canvas-container' });
         this.elements.alphaBgCanvas = createEl('canvas', { id: 'alpha-bg-canvas' });
-        this.elements.alphaNodesContainer = createEl('div', { id: 'alpha-nodes-container' });
+        this.elements.alphaNodesContainer = createEl('div', { id: 'alpha-nodes-container', className: 'absolute top-0 left-0 w-full h-full' });
         alphaContainer.append(this.elements.alphaBgCanvas, this.elements.alphaNodesContainer);
         alphaPane.append(alphaHeader, alphaContainer);
 
@@ -142,37 +146,55 @@ export default class ColormapSelector {
         const swatchContainer = createEl('div', { className: 'preview-container swatch-preview' });
         this.elements.selectedColorPreviewCanvas = createEl('canvas', { id: 'selected-color-preview-canvas' });
         swatchContainer.append(this.elements.selectedColorPreviewCanvas);
-        scHeader.append(swatchContainer, createEl('span', { className: 'section-title', text: 'Selected Color' }));
-        // Inputs
-        this.elements.lightnessInput = createEl('input', { id: 'lightness-input', className: 'value-input' });
-        this.elements.alphaInput = createEl('input', { id: 'alpha-input', className: 'value-input' });
+        scHeader.append(swatchContainer, createEl('h3', { className: 'section-title', text: 'Selected Color' }));
+        
+        const inputsWrapper = createEl('div', { className: 'space-y-2 mt-2' });
+        const lightnessAlphaGrid = createEl('div', { className: 'grid grid-cols-2 gap-2' });
+        const lightnessGroup = createEl('div');
+        lightnessGroup.append(createEl('h3', { className: 'input-label', text: 'Lightness' }), createEl('input', { type: 'text', id: 'lightness-input', className: 'value-input' }));
+        const alphaGroup = createEl('div');
+        alphaGroup.append(createEl('h3', { className: 'input-label', text: 'Alpha' }), createEl('input', { type: 'text', id: 'alpha-input', className: 'value-input' }));
+        lightnessAlphaGrid.append(lightnessGroup, alphaGroup);
+
+        const colorReadoutContainer = createEl('div', { id: 'color-readout-container' });
         this.elements.rgbInputsContainer = createEl('div', { id: 'rgb-inputs-container' });
+        this.elements.rgbInputsContainer.append(createEl('h3', { className: 'input-label text-center mb-1', text: 'RGB (0-255)' }));
+        const rgbGrid = createEl('div', { className: 'rgb-inputs-grid' });
+        rgbGrid.append(
+            createEl('input', { type: 'text', id: 'rgb-r-input', placeholder: 'R', className: 'value-input' }),
+            createEl('input', { type: 'text', id: 'rgb-g-input', placeholder: 'G', className: 'value-input' }),
+            createEl('input', { type: 'text', id: 'rgb-b-input', placeholder: 'B', className: 'value-input' })
+        );
+        this.elements.rgbInputsContainer.append(rgbGrid);
+
         this.elements.hslInputsContainer = createEl('div', { id: 'hsl-inputs-container', className: 'hidden' });
-        this.elements.rgbRInput = createEl('input', { id: 'rgb-r-input', className: 'value-input' });
-        this.elements.rgbGInput = createEl('input', { id: 'rgb-g-input', className: 'value-input' });
-        this.elements.rgbBInput = createEl('input', { id: 'rgb-b-input', className: 'value-input' });
-        this.elements.hslHInput = createEl('input', { id: 'hsl-h-input', className: 'value-input' });
-        this.elements.hslSInput = createEl('input', { id: 'hsl-s-input', className: 'value-input' });
-        this.elements.hslLInput = createEl('input', { id: 'hsl-l-input', className: 'value-input' });
-        this.elements.rgbInputsContainer.append(this.elements.rgbRInput, this.elements.rgbGInput, this.elements.rgbBInput);
-        this.elements.hslInputsContainer.append(this.elements.hslHInput, this.elements.hslSInput, this.elements.hslLInput);
-        selectedColorPane.append(scHeader, this.elements.lightnessInput, this.elements.alphaInput, this.elements.rgbInputsContainer, this.elements.hslInputsContainer);
+        this.elements.hslInputsContainer.append(createEl('h3', { className: 'input-label text-center mb-1', text: 'HSL (0-1)' }));
+        const hslGrid = createEl('div', { className: 'hsl-inputs-grid' });
+        hslGrid.append(
+            createEl('input', { type: 'text', id: 'hsl-h-input', placeholder: 'H', className: 'value-input' }),
+            createEl('input', { type: 'text', id: 'hsl-s-input', placeholder: 'S', className: 'value-input' }),
+            createEl('input', { type: 'text', id: 'hsl-l-input', placeholder: 'L', className: 'value-input' })
+        );
+        this.elements.hslInputsContainer.append(hslGrid);
+        
+        colorReadoutContainer.append(this.elements.rgbInputsContainer, this.elements.hslInputsContainer);
+        inputsWrapper.append(lightnessAlphaGrid, colorReadoutContainer);
+        selectedColorPane.append(scHeader, inputsWrapper);
 
         // --- Build Colormap Preview Panel ---
-        const cmHeader = createEl('div', { className: 'section-header' });
-        cmHeader.append(createEl('span', { className: 'section-title', text: 'Current Colormap' }));
+        const cmHeader = createEl('h3', { className: 'section-title', text: 'Current Colormap' });
         const cmPreviewContainer = createEl('div', { className: 'preview-container' });
         this.elements.colormapPreviewCanvas = createEl('canvas', { id: 'colormap-preview-canvas' });
         cmPreviewContainer.append(this.elements.colormapPreviewCanvas);
-        this.elements.selectButton = createEl('button', { id: 'select-button', className: 'select-button', text: 'Select' });
+        this.elements.selectButton = createEl('button', { id: 'select-button', className: 'select-button mt-auto', text: 'Select' });
         colormapPreviewPane.append(cmHeader, cmPreviewContainer, this.elements.selectButton);
 
         // --- Build Modal & Context Menu ---
         this.elements.modalOverlay = createEl('div', { id: 'modal-overlay', className: 'modal-overlay hidden' });
         const modalDialog = createEl('div', { id: 'modal-dialog', className: 'modal-dialog' });
-        this.elements.modalTitle = createEl('div', { id: 'modal-title' });
+        this.elements.modalTitle = createEl('h3', { id: 'modal-title', className: 'modal-title' });
         this.elements.modalInputContainer = createEl('div', { id: 'modal-input-container', className: 'hidden' });
-        this.elements.modalInput = createEl('input', { id: 'modal-input', className: 'modal-input' });
+        this.elements.modalInput = createEl('input', { type: 'text', id: 'modal-input', className: 'modal-input' });
         this.elements.modalButtons = createEl('div', { id: 'modal-buttons', className: 'modal-buttons' });
         this.elements.modalInputContainer.append(this.elements.modalInput);
         modalDialog.append(this.elements.modalTitle, this.elements.modalInputContainer, this.elements.modalButtons);
@@ -191,6 +213,21 @@ export default class ColormapSelector {
         this.createInteractiveCanvas(this.elements.lightnessNodesContainer, 'lightness');
         this.createInteractiveCanvas(this.elements.alphaNodesContainer, 'alpha');
     }
+
+    show() {
+        if (!this.wrapper) return;
+        this.wrapper.style.display = 'grid';
+        
+        // Use requestAnimationFrame to ensure the browser has calculated the component's
+        // dimensions before we try to draw on the canvases.
+        requestAnimationFrame(() => {
+            this.setupCanvases();
+            this.drawAll(); // Ensure everything is drawn after canvas setup
+        });
+    }
+
+
+
 
     createSnapshot() {
         return {
@@ -387,65 +424,67 @@ export default class ColormapSelector {
             this.drawAll();
         }
     
-        setupEventListeners() {
-            this.elements.tabRgbCube.addEventListener('click', () => this.setColorSpace('RGB_CUBE'));
-            this.elements.tabHslCone.addEventListener('click', () => this.setColorSpace('HSL_DI_CONE'));
-    
-            const mainContainer = document.querySelector('.color-editor-layout');
-            mainContainer.addEventListener('contextmenu', (e) => {
-                e.preventDefault();
-                this.deselectAll();
-                this.hideContextMenu();
-            });
-    
-            document.addEventListener('click', () => this.hideContextMenu());
-    
-            const resizeObserver = new ResizeObserver(() => this.setupCanvases());
-            resizeObserver.observe(document.querySelector('.w-full'));
-    
-            Object.values(this.elements.interactiveCanvases).forEach(canvas => {
-                canvas.addEventListener('mouseenter', () => { this.state.isMouseInCanvas = true; });
-                canvas.addEventListener('mouseleave', () => { this.state.isMouseInCanvas = false; });
-            });
-    
-            this.elements.hsNodesContainer.addEventListener('mousedown', (e) => this.handleMouseDown(e, 'hs'));
-            this.elements.lightnessNodesContainer.addEventListener('mousedown', (e) => this.handleMouseDown(e, 'lightness'));
-            this.elements.alphaNodesContainer.addEventListener('mousedown', (e) => this.handleMouseDown(e, 'alpha'));
-    
-            document.addEventListener('keydown', (e) => this.handleKeyDown(e));
-    
-            this.elements.lightnessInput.addEventListener('change', (e) => this.handleInputChange(e, 'lightness'));
-            this.elements.alphaInput.addEventListener('change', (e) => this.handleInputChange(e, 'alpha'));
-    
-            const colorChangeHandler = () => this.handleColorInputChange();
-            this.elements.rgbRInput.addEventListener('change', colorChangeHandler);
-            this.elements.rgbGInput.addEventListener('change', colorChangeHandler);
-            this.elements.rgbBInput.addEventListener('change', colorChangeHandler);
-            this.elements.hslHInput.addEventListener('change', colorChangeHandler);
-            this.elements.hslSInput.addEventListener('change', colorChangeHandler);
-            this.elements.hslLInput.addEventListener('change', colorChangeHandler);
-    
-            const presetEventHandler = (e) => {
-                const target = e.target.closest('.preset-item');
-                if (target) {
-                    if (e.type === 'click') {
-                        this.handlePresetClick(target);
-                    } else if (e.type === 'contextmenu' && target.dataset.custom === 'true') {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        this.showContextMenu(e, target.dataset.name, target.dataset.type);
-                    }
+            setupEventListeners() {
+        this.elements.tabRgbCube.addEventListener('click', () => this.setColorSpace('RGB_CUBE'));
+        this.elements.tabHslCone.addEventListener('click', () => this.setColorSpace('HSL_DI_CONE'));
+
+        // Use the main wrapper for context menu to prevent deselection when clicking inside the component
+        this.wrapper.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            e.stopPropagation(); // Stop it from propagating to the document
+        });
+
+        // Close context menu if clicking anywhere else on the page
+        document.addEventListener('click', () => this.hideContextMenu());
+
+        const resizeObserver = new ResizeObserver(() => this.setupCanvases());
+        resizeObserver.observe(this.wrapper);
+
+        Object.values(this.elements.interactiveCanvases).forEach(canvas => {
+            canvas.addEventListener('mouseenter', () => { this.state.isMouseInCanvas = true; });
+            canvas.addEventListener('mouseleave', () => { this.state.isMouseInCanvas = false; });
+        });
+
+        this.elements.hsNodesContainer.addEventListener('mousedown', (e) => this.handleMouseDown(e, 'hs'));
+        this.elements.lightnessNodesContainer.addEventListener('mousedown', (e) => this.handleMouseDown(e, 'lightness'));
+        this.elements.alphaNodesContainer.addEventListener('mousedown', (e) => this.handleMouseDown(e, 'alpha'));
+
+        document.addEventListener('keydown', (e) => this.handleKeyDown(e));
+
+        this.elements.lightnessInput.addEventListener('change', (e) => this.handleInputChange(e, 'lightness'));
+        this.elements.alphaInput.addEventListener('change', (e) => this.handleInputChange(e, 'alpha'));
+
+        const colorChangeHandler = () => this.handleColorInputChange();
+        this.elements.rgbRInput.addEventListener('change', colorChangeHandler);
+        this.elements.rgbGInput.addEventListener('change', colorChangeHandler);
+        this.elements.rgbBInput.addEventListener('change', colorChangeHandler);
+        this.elements.hslHInput.addEventListener('change', colorChangeHandler);
+        this.elements.hslSInput.addEventListener('change', colorChangeHandler);
+        this.elements.hslLInput.addEventListener('change', colorChangeHandler);
+
+        const presetEventHandler = (e) => {
+            const target = e.target.closest('.preset-item');
+            if (target) {
+                if (e.type === 'click') {
+                    this.handlePresetClick(target);
+                } else if (e.type === 'contextmenu' && target.dataset.custom === 'true') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    this.showContextMenu(e, target.dataset.name, target.dataset.type);
                 }
-            };
-    
-            this.elements.colorsPresetsWrapper.addEventListener('click', presetEventHandler);
-            this.elements.colorsPresetsWrapper.addEventListener('contextmenu', presetEventHandler);
-            this.elements.colormapsPresetsWrapper.addEventListener('click', presetEventHandler);
-            this.elements.colormapsPresetsWrapper.addEventListener('contextmenu', presetEventHandler);
-    
-            this.elements.selectButton.addEventListener('click', () => {
-                const output = { points: [] };
-                output.points = this.state.points.map(p => {
+            }
+        };
+
+        this.elements.colorsPresetsWrapper.addEventListener('click', presetEventHandler);
+        this.elements.colorsPresetsWrapper.addEventListener('contextmenu', presetEventHandler);
+        this.elements.colormapsPresetsWrapper.addEventListener('click', presetEventHandler);
+        this.elements.colormapsPresetsWrapper.addEventListener('contextmenu', presetEventHandler);
+
+        // --- THIS IS THE MODIFIED PART ---
+        this.elements.selectButton.addEventListener('click', () => {
+            // Get the current colormap data in a clean format
+            const output = {
+                points: this.state.points.map(p => {
                     const color = this.abstractToRgb(p.hsPos.u, p.hsPos.v, p.lightness);
                     const rgb = this.clampColor(color);
                     return {
@@ -454,10 +493,20 @@ export default class ColormapSelector {
                         color: [rgb.r, rgb.g, rgb.b],
                         order: p.order
                     };
-                });
-                console.log(JSON.stringify(output, null, 2));
+                })
+            };
+
+            // Dispatch a custom event from the component's main wrapper element.
+            // The colormap data is passed in the 'detail' property.
+            const selectEvent = new CustomEvent('select', {
+                detail: output,
+                bubbles: true, // Allows the event to bubble up through the DOM
+                cancelable: true
             });
-        }
+            this.wrapper.dispatchEvent(selectEvent);
+        });
+    }
+
     
         showContextMenu(e, name, type) {
             this.hideContextMenu();
@@ -1428,70 +1477,74 @@ export default class ColormapSelector {
         }
     
         drawConnectingLine(ctx, type) {
-            if (this.state.points.length <= 1) return;
-    
-            ctx.lineWidth = C.LINE_WIDTH_DEFAULT;
-            ctx.globalAlpha = 0.7;
-    
-            ctx.beginPath();
-    
-            for (let i = 0; i < this.state.points.length - 1; i++) {
-                const p1 = this.state.points[i];
-                const p2 = this.state.points[i + 1];
-                const segmentDuration = p2.pos - p1.pos;
-    
-                if (segmentDuration < 1e-6) continue;
-    
-                const numSteps = Math.max(2, Math.ceil(segmentDuration * ctx.canvas.width / 4));
-    
-                for (let j = 0; j <= numSteps; j++) {
-                    const t = p1.pos + (j / numSteps) * segmentDuration;
-                    const props = this.getInterpolatedPropertiesAt(t);
-                    if (!props) continue;
-    
-                    let x, y;
-                    if (type === 'hs') {
-                        const clamped = this.clampAbstractPoint(props.u, props.v, props.lightness);
-                        x = clamped.u * this.state.transform.scale + this.state.transform.offsetX;
-                        y = clamped.v * this.state.transform.scale + this.state.transform.offsetY;
-                    } else {
-                        x = t * ctx.canvas.width;
-                        if (type === 'lightness') {
-                            y = (1 - props.lightness) * ctx.canvas.height;
-                        } else {
-                            y = (1 - props.alpha) * ctx.canvas.height;
-                        }
-                    }
-    
-                    if (j === 0 && i === 0) {
-                        ctx.moveTo(x, y);
-                    } else {
-                        ctx.lineTo(x, y);
-                    }
-                }
-            }
-    
-            ctx.strokeStyle = 'black';
-            if (type !== 'hs') {
-                ctx.globalAlpha = 1.0;
-                const gradient = ctx.createLinearGradient(0, 0, ctx.canvas.width, 0);
-                const numGradientStops = Math.min(256, ctx.canvas.width);
-                for (let i = 0; i <= numGradientStops; i++) {
-                    const t = i / numGradientStops;
-                    const props = this.getInterpolatedPropertiesAt(t);
-                    if (!props) continue;
-    
-                    const clamped = this.clampAbstractPoint(props.u, props.v, props.lightness);
-                    const color = this.abstractToRgb(clamped.u, clamped.v, props.lightness);
-                    const { r, g, b } = this.clampColor(color);
-                    gradient.addColorStop(t, `rgba(${r}, ${g}, ${b}, ${props.alpha})`);
-                }
-                ctx.strokeStyle = gradient;
-            }
-    
-            ctx.stroke();
-            ctx.globalAlpha = 1.0;
+        // This guard clause prevents the function from running if the canvas has no area.
+        if (this.state.points.length <= 1 || ctx.canvas.width === 0) {
+            return;
         }
+
+        ctx.lineWidth = C.LINE_WIDTH_DEFAULT;
+        ctx.globalAlpha = 0.7;
+
+        ctx.beginPath();
+
+        for (let i = 0; i < this.state.points.length - 1; i++) {
+            const p1 = this.state.points[i];
+            const p2 = this.state.points[i + 1];
+            const segmentDuration = p2.pos - p1.pos;
+
+            if (segmentDuration < 1e-6) continue;
+
+            const numSteps = Math.max(2, Math.ceil(segmentDuration * ctx.canvas.width / 4));
+
+            for (let j = 0; j <= numSteps; j++) {
+                const t = p1.pos + (j / numSteps) * segmentDuration;
+                const props = this.getInterpolatedPropertiesAt(t);
+                if (!props) continue;
+
+                let x, y;
+                if (type === 'hs') {
+                    const clamped = this.clampAbstractPoint(props.u, props.v, props.lightness);
+                    x = clamped.u * this.state.transform.scale + this.state.transform.offsetX;
+                    y = clamped.v * this.state.transform.scale + this.state.transform.offsetY;
+                } else {
+                    x = t * ctx.canvas.width;
+                    if (type === 'lightness') {
+                        y = (1 - props.lightness) * ctx.canvas.height;
+                    } else {
+                        y = (1 - props.alpha) * ctx.canvas.height;
+                    }
+                }
+
+                if (j === 0 && i === 0) {
+                    ctx.moveTo(x, y);
+                } else {
+                    ctx.lineTo(x, y);
+                }
+            }
+        }
+
+        ctx.strokeStyle = 'black';
+        if (type !== 'hs') {
+            ctx.globalAlpha = 1.0;
+            const gradient = ctx.createLinearGradient(0, 0, ctx.canvas.width, 0);
+            const numGradientStops = Math.min(256, ctx.canvas.width);
+            for (let i = 0; i <= numGradientStops; i++) {
+                const t = i / numGradientStops;
+                const props = this.getInterpolatedPropertiesAt(t);
+                if (!props) continue;
+
+                const clamped = this.clampAbstractPoint(props.u, props.v, props.lightness);
+                const color = this.abstractToRgb(clamped.u, clamped.v, props.lightness);
+                const { r, g, b } = this.clampColor(color);
+                gradient.addColorStop(t, `rgba(${r}, ${g}, ${b}, ${props.alpha})`);
+            }
+            ctx.strokeStyle = gradient;
+        }
+
+        ctx.stroke();
+        ctx.globalAlpha = 1.0;
+    }
+
     
         drawHSElements() {
             const canvas = this.elements.interactiveCanvases['hs'];
