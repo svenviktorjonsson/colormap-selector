@@ -4,59 +4,66 @@ import namedColorsData from './named_colors.js';
 import namedColormapsData from './named_colormaps.js';
 
 export default class ColormapSelector {
-    constructor() {
-        this.state = {
-            points: [],
-            selectedPointIds: new Set(),
-            lastSelectedPointId: null,
-            activeDrag: { type: null, element: null, pointId: null },
-            transform: { scale: 1, offsetX: 0, offsetY: 0 },
-            viewLightness: 0.5,
-            viewAlpha: 1.0,
-            colorSpace: 'RGB_CUBE',
-            undoStack: [],
-            redoStack: [],
-            isMouseInCanvas: false,
-            isDirty: false,
-            loadedColormapName: null,
-            loadedColormapType: null
-        };
+    constructor(customColors = {}, customColormaps = {}) {
+    this.state = {
+        points: [],
+        selectedPointIds: new Set(),
+        lastSelectedPointId: null,
+        activeDrag: { type: null, element: null, pointId: null },
+        transform: { scale: 1, offsetX: 0, offsetY: 0 },
+        viewLightness: 0.5,
+        viewAlpha: 1.0,
+        colorSpace: 'RGB_CUBE',
+        undoStack: [],
+        redoStack: [],
+        isMouseInCanvas: false,
+        isDirty: false,
+        loadedColormapName: null,
+        loadedColormapType: null
+    };
 
-        this.namedColors = {};
-        this.customColors = {};
-        this.namedColormaps = {};
-        this.customColormaps = {};
+    this.namedColors = {};
+    this.customColors = { ...customColors };
+    this.namedColormaps = {};
+    this.customColormaps = { ...customColormaps };
 
-        this.clickCount = 0;
-        this.lastClickTime = 0;
-        this.lastClickTarget = null;
-        
-        this.wrapper = null;
-        this.elements = {};
-    }
+    this.clickCount = 0;
+    this.lastClickTime = 0;
+    this.lastClickTarget = null;
+    
+    this.wrapper = null;
+    this.elements = {};
+}
 
     initialize() {
-        try {
-            this.namedColors = namedColorsData;
-            this.namedColormaps = namedColormapsData;
-            this.customColors = JSON.parse(localStorage.getItem('customColors')) || {};
-            this.customColormaps = JSON.parse(localStorage.getItem('customColormaps')) || {};
+    try {
+        this.namedColors = namedColorsData;
+        this.namedColormaps = namedColormapsData;
 
-            this.initializeDOM();
-            this.populatePresets();
-            this.loadColormap('viridis', 'named_colormaps', true);
-            this.updateTabs();
-            this.setupCanvases();
-            this.setupEventListeners();
-            this.drawAll();
-        } catch (error) {
-            console.error("FATAL: Could not initialize ColorEditor.", error);
-            if (this.wrapper) {
-                this.wrapper.innerHTML = `<div style="padding: 1em; color: #d8000c; background-color: #ffbaba; border: 1px solid; border-radius: 0.5rem; font-family: sans-serif;"><strong>Error:</strong> Could not load critical data files.</div>`;
-                this.show();
-            }
+        this.initializeDOM();
+        this.populatePresets();
+        
+        this.state.points = [];
+        this.state.selectedPointIds.clear();
+        this.state.lastSelectedPointId = null;
+        this.state.viewLightness = 0.5;
+        this.state.viewAlpha = 1.0;
+        this.state.loadedColormapName = null;
+        this.state.loadedColormapType = null;
+        this.setDirty(false);
+        
+        this.updateTabs();
+        this.setupCanvases();
+        this.setupEventListeners();
+        this.drawAll();
+    } catch (error) {
+        console.error("FATAL: Could not initialize ColorEditor.", error);
+        if (this.wrapper) {
+            this.wrapper.innerHTML = `<div style="padding: 1em; color: #d8000c; background-color: #ffbaba; border: 1px solid; border-radius: 0.5rem; font-family: sans-serif;"><strong>Error:</strong> Could not load critical data files.</div>`;
+            this.show();
         }
     }
+}
 
     hide() {
         if (!this.wrapper) return;
@@ -68,113 +75,7 @@ export default class ColormapSelector {
         return this.wrapper;
     }
 
-    // Replace the initializeDOM method in your ColormapSelector class with this fixed version:
-
-initializeDOM() {
-    this.elements = { interactiveCanvases: {} };
-
-    const createEl = (tag, options = {}) => {
-        const el = document.createElement(tag);
-        if (options.id) {
-            el.id = options.id;
-            const camelCaseId = options.id.replace(/-(\w)/g, (_, letter) => letter.toUpperCase());
-            this.elements[camelCaseId] = el;
-        }
-        if (options.className) el.className = options.className;
-        if (options.text) el.textContent = options.text;
-        if (options.type) el.type = options.type;
-        if (options.placeholder) el.placeholder = options.placeholder;
-        return el;
-    };
-
-    this.wrapper = createEl('div', { id: 'colormap-selector-wrapper', className: 'color-editor-layout' });
-    this.wrapper.style.cssText = `
-        position: fixed; display: none; z-index: 1000; background-color: #1a202c; 
-        padding: 0.5rem; border-radius: 0.5rem; box-shadow: 0 10px 25px rgba(0,0,0,0.3); 
-        bottom: 0.5rem; right: 0.5rem; height: 50vh; max-width: 90vw; min-height: 400px; min-width: 600px;
-    `;
-
-    const hsPane = createEl('div', { id: 'hs-pane-wrapper', className: 'preset-wrapper' });
-    const lightnessPane = createEl('div', { id: 'lightness-wrapper', className: 'preset-wrapper' });
-    const alphaPane = createEl('div', { id: 'alpha-wrapper', className: 'preset-wrapper' });
-    this.elements.colorsPresetsWrapper = createEl('div', { id: 'colors-presets-wrapper', className: 'preset-wrapper' });
-    this.elements.colormapsPresetsWrapper = createEl('div', { id: 'colormaps-presets-wrapper', className: 'preset-wrapper' });
-    const selectedColorPane = createEl('div', { id: 'selected-color-section', className: 'control-section' });
-    const colormapPreviewPane = createEl('div', { id: 'current-colormap-section', className: 'control-section' });
-
-    const hsHeader = createEl('div', { className: 'panel-header' });
-    this.elements.tabRgbCube = createEl('button', { id: 'tab-rgb-cube', className: 'tab-button', text: 'RGB Cube' });
-    this.elements.tabHslCone = createEl('button', { id: 'tab-hsl-cone', className: 'tab-button', text: 'HSL Di-Cone' });
-    hsHeader.append(this.elements.tabRgbCube, this.elements.tabHslCone);
-    const hsContainer = createEl('div', { id: 'hs-canvas-container', className: 'canvas-container' });
-    // Create and store the hs-nodes-container properly
-    const hsNodesContainer = createEl('div', { id: 'hs-nodes-container', className: 'absolute top-0 left-0 w-full h-full' });
-    hsContainer.append(createEl('canvas', { id: 'hs-bg-canvas' }), hsNodesContainer);
-    hsPane.append(hsHeader, hsContainer);
-
-    const lightnessHeader = createEl('h2', { className: 'panel-header', text: 'Lightness' });
-    const lightnessContainer = createEl('div', { id: 'lightness-slider-container', className: 'canvas-container' });
-    // Create and store the lightness-nodes-container properly
-    const lightnessNodesContainer = createEl('div', { id: 'lightness-nodes-container', className: 'absolute top-0 left-0 w-full h-full' });
-    lightnessContainer.append(createEl('canvas', { id: 'lightness-bg-canvas' }), lightnessNodesContainer);
-    lightnessPane.append(lightnessHeader, lightnessContainer);
-
-    const alphaHeader = createEl('h2', { className: 'panel-header', text: 'Alpha' });
-    const alphaContainer = createEl('div', { id: 'alpha-slider-container', className: 'canvas-container' });
-    // Create and store the alpha-nodes-container properly
-    const alphaNodesContainer = createEl('div', { id: 'alpha-nodes-container', className: 'absolute top-0 left-0 w-full h-full' });
-    alphaContainer.append(createEl('canvas', { id: 'alpha-bg-canvas' }), alphaNodesContainer);
-    alphaPane.append(alphaHeader, alphaContainer);
-
-    const colorsHeader = createEl('div', { className: 'preset-category-header' });
-    colorsHeader.append(createEl('span', { className: 'preset-category-title', text: 'Colors' }), createEl('button', { className: 'add-preset-btn', text: '+' }));
-    this.elements.colorsPresetsWrapper.append(colorsHeader, createEl('div', { className: 'preset-items-container' }));
-
-    const colormapsHeader = createEl('div', { className: 'preset-category-header' });
-    colormapsHeader.append(createEl('span', { className: 'preset-category-title', text: 'Colormaps' }), createEl('button', { className: 'add-preset-btn', text: '+' }));
-    this.elements.colormapsPresetsWrapper.append(colormapsHeader, createEl('div', { className: 'preset-items-container' }));
-
-    const scTitle = createEl('h3', { className: 'section-title', text: 'Selected Color' });
-    const scPreviewContainer = createEl('div', { className: 'preview-container' });
-    scPreviewContainer.append(createEl('canvas', { id: 'selected-color-preview-canvas' }));
-    const inputsWrapper = createEl('div', { className: 'space-y-2' });
-    const lightnessAlphaGrid = createEl('div', { className: 'grid grid-cols-2 gap-2' });
-    const lightnessGroup = createEl('div');
-    lightnessGroup.append(createEl('h3', { className: 'input-label', text: 'Lightness' }), createEl('input', { type: 'text', id: 'lightness-input', className: 'value-input' }));
-    const alphaGroup = createEl('div');
-    alphaGroup.append(createEl('h3', { className: 'input-label', text: 'Alpha' }), createEl('input', { type: 'text', id: 'alpha-input', className: 'value-input' }));
-    lightnessAlphaGrid.append(lightnessGroup, alphaGroup);
-    const colorReadoutContainer = createEl('div', { id: 'color-readout-container' });
-    this.elements.rgbInputsContainer = createEl('div', { id: 'rgb-inputs-container' });
-    this.elements.rgbInputsContainer.append(createEl('h3', { className: 'input-label text-center mb-1', text: 'RGB (0-255)' }), createEl('div', { className: 'rgb-inputs-grid' }));
-    this.elements.rgbInputsContainer.querySelector('.rgb-inputs-grid').append(createEl('input', { type: 'text', id: 'rgb-r-input', placeholder: 'R', className: 'value-input' }), createEl('input', { type: 'text', id: 'rgb-g-input', placeholder: 'G', className: 'value-input' }), createEl('input', { type: 'text', id: 'rgb-b-input', placeholder: 'B', className: 'value-input' }));
-    this.elements.hslInputsContainer = createEl('div', { id: 'hsl-inputs-container', className: 'hidden' });
-    this.elements.hslInputsContainer.append(createEl('h3', { className: 'input-label text-center mb-1', text: 'HSL (0-1)' }), createEl('div', { className: 'hsl-inputs-grid' }));
-    this.elements.hslInputsContainer.querySelector('.hsl-inputs-grid').append(createEl('input', { type: 'text', id: 'hsl-h-input', placeholder: 'H', className: 'value-input' }), createEl('input', { type: 'text', id: 'hsl-s-input', placeholder: 'S', className: 'value-input' }), createEl('input', { type: 'text', id: 'hsl-l-input', placeholder: 'L', className: 'value-input' }));
-    colorReadoutContainer.append(this.elements.rgbInputsContainer, this.elements.hslInputsContainer);
-    inputsWrapper.append(lightnessAlphaGrid, colorReadoutContainer);
-    selectedColorPane.append(scTitle, scPreviewContainer, inputsWrapper);
     
-    const cmHeader = createEl('h3', { className: 'section-title text-center', text: 'Current Colormap' });
-    const cmPreviewContainer = createEl('div', { className: 'preview-container' });
-    cmPreviewContainer.append(createEl('canvas', { id: 'colormap-preview-canvas' }));
-    this.elements.selectButton = createEl('button', { id: 'select-button', className: 'select-button mt-auto', text: 'Select' });
-    colormapPreviewPane.append(cmHeader, cmPreviewContainer, this.elements.selectButton);
-
-    this.elements.modalOverlay = createEl('div', { id: 'modal-overlay', className: 'modal-overlay hidden' });
-    const modalDialog = createEl('div', { id: 'modal-dialog', className: 'modal-dialog' });
-    modalDialog.append(createEl('h3', { id: 'modal-title', className: 'modal-title' }), createEl('div', { id: 'modal-input-container', className: 'hidden' }), createEl('div', { id: 'modal-buttons', className: 'modal-buttons' }));
-    modalDialog.querySelector('#modal-input-container').append(createEl('input', { type: 'text', id: 'modal-input', className: 'modal-input' }));
-    this.elements.modalOverlay.append(modalDialog);
-    this.elements.contextMenu = createEl('div', { id: 'context-menu', className: 'context-menu hidden' });
-
-    this.wrapper.append(hsPane, lightnessPane, this.elements.colorsPresetsWrapper, selectedColorPane, alphaPane, this.elements.colormapsPresetsWrapper, colormapPreviewPane, this.elements.modalOverlay, this.elements.contextMenu);
-
-    // Create interactive canvases for all three areas
-    this.createInteractiveCanvas(hsNodesContainer, 'hs');
-    this.createInteractiveCanvas(lightnessNodesContainer, 'lightness');
-    this.createInteractiveCanvas(alphaNodesContainer, 'alpha');
-}
 
     show() {
         if (!this.wrapper) return;
@@ -263,13 +164,15 @@ initializeDOM() {
     }
 
     saveCustomPresets(type) {
-        const key = type === 'custom_colors' ? 'custom_colors' : 'custom_colormaps';
-        const data = type === 'custom_colors' ? this.customColors : this.customColormaps;
-        try {
-            localStorage.setItem(key, JSON.stringify(data));
-        } catch (e) {
-            console.error(`Failed to save ${key} to localStorage`, e);
-        }
+        const saveEvent = new CustomEvent('dataChanged', {
+            detail: {
+                customColors: { ...this.customColors },
+                customColormaps: { ...this.customColormaps }
+            },
+            bubbles: true,
+            cancelable: true
+        });
+        this.wrapper.dispatchEvent(saveEvent);
     }
 
     async handlePresetClick(target) {
@@ -339,134 +242,253 @@ initializeDOM() {
         }
     
         loadColormap(name, type, isInitialLoad = false) {
-            if (!isInitialLoad) this.saveState();
-            
-            const colormapData = (type === 'named_colormaps') ? this.namedColormaps[name] : this.customColormaps[name];
-            
-            if (!colormapData || !colormapData.points) {
-                console.error(`Colormap '${name}' not found or is invalid.`);
-                return;
-            }
+   if (!isInitialLoad) this.saveState();
+   
+   const colormapData = (type === 'named_colormaps') ? this.namedColormaps[name] : this.customColormaps[name];
+   
+   if (!colormapData || !colormapData.points) {
+       console.error(`Colormap '${name}' not found or is invalid.`);
+       return;
+   }
+
+   const newPoints = colormapData.points.map(p => {
+       let rgbArray = [0, 0, 0];
+       if (typeof p.color === 'string') {
+           rgbArray = this.namedColors[p.color] || this.customColors[p.color]?.rgb || rgbArray;
+       } else if (Array.isArray(p.color)) {
+           rgbArray = p.color;
+       }
+
+       const r = rgbArray[0] / 255;
+       const g = rgbArray[1] / 255;
+       const b = rgbArray[2] / 255;
+       const alpha = p.alpha ?? 1.0;
+       return this.createPointFromRgb(r, g, b, alpha, p.pos, p.order);
+   });
+
+   this.state.points = newPoints;
+   this.sortPoints();
+   this.state.selectedPointIds.clear();
+   this.state.lastSelectedPointId = null;
+
+   this.state.loadedColormapName = name;
+   this.state.loadedColormapType = type;
+   this.setDirty(false);
+   this.state.undoStack = [];
+   this.state.redoStack = [];
+   this.drawAll();
+}
     
-            const newPoints = colormapData.points.map(p => {
-                let rgbArray = [0, 0, 0];
-                if (typeof p.color === 'string') {
-                    rgbArray = this.namedColors[p.color] || this.customColors[p.color]?.rgb || rgbArray;
-                } else if (Array.isArray(p.color)) {
-                    rgbArray = p.color;
-                }
-    
-                const r = rgbArray[0] / 255;
-                const g = rgbArray[1] / 255;
-                const b = rgbArray[2] / 255;
-                const alpha = p.alpha ?? 1.0;
-                return this.createPointFromRgb(r, g, b, alpha, p.pos, p.order);
-            });
-    
-            this.state.points = newPoints;
-            this.sortPoints();
-            this.state.selectedPointIds.clear();
-    
-            if (this.state.points.length > 0) {
-                const firstPointId = this.state.points[0].id;
-                this.state.selectedPointIds.add(firstPointId);
-                this.state.lastSelectedPointId = firstPointId;
-                this.state.viewLightness = this.state.points[0].lightness;
-                this.state.viewAlpha = this.state.points[0].alpha;
-            } else {
-                this.state.lastSelectedPointId = null;
-            }
-    
-            this.state.loadedColormapName = name;
-            this.state.loadedColormapType = type;
-            this.setDirty(false);
-            this.state.undoStack = [];
-            this.state.redoStack = [];
-            this.drawAll();
-        }
-    
-            setupEventListeners() {
-        this.elements.tabRgbCube.addEventListener('click', () => this.setColorSpace('RGB_CUBE'));
-        this.elements.tabHslCone.addEventListener('click', () => this.setColorSpace('HSL_DI_CONE'));
+        initializeDOM() {
+   this.elements = { interactiveCanvases: {} };
 
-        // Use the main wrapper for context menu to prevent deselection when clicking inside the component
-        this.wrapper.addEventListener('contextmenu', (e) => {
-            e.preventDefault();
-            e.stopPropagation(); // Stop it from propagating to the document
-        });
+   const createEl = (tag, options = {}) => {
+       const el = document.createElement(tag);
+       if (options.id) {
+           el.id = options.id;
+           const camelCaseId = options.id.replace(/-(\w)/g, (_, letter) => letter.toUpperCase());
+           this.elements[camelCaseId] = el;
+       }
+       if (options.className) el.className = options.className;
+       if (options.text) el.textContent = options.text;
+       if (options.type) el.type = options.type;
+       if (options.placeholder) el.placeholder = options.placeholder;
+       return el;
+   };
 
-        // Close context menu if clicking anywhere else on the page
-        document.addEventListener('click', () => this.hideContextMenu());
+   this.wrapper = createEl('div', { id: 'colormap-selector-wrapper', className: 'color-editor-layout' });
+   this.wrapper.style.cssText = `
+       position: fixed; display: none; z-index: 1000; background-color: #1a202c; 
+       padding: 0.5rem; border-radius: 0.5rem; box-shadow: 0 10px 25px rgba(0,0,0,0.3); 
+       bottom: 0.5rem; right: 0.5rem; height: 50vh; max-width: 90vw; min-height: 400px; min-width: 600px;
+   `;
 
-        const resizeObserver = new ResizeObserver(() => this.setupCanvases());
-        resizeObserver.observe(this.wrapper);
+   const hsPane = createEl('div', { id: 'hs-pane-wrapper', className: 'preset-wrapper' });
+   const lightnessPane = createEl('div', { id: 'lightness-wrapper', className: 'preset-wrapper' });
+   const alphaPane = createEl('div', { id: 'alpha-wrapper', className: 'preset-wrapper' });
+   this.elements.colorsPresetsWrapper = createEl('div', { id: 'colors-presets-wrapper', className: 'preset-wrapper' });
+   this.elements.colormapsPresetsWrapper = createEl('div', { id: 'colormaps-presets-wrapper', className: 'preset-wrapper' });
+   const selectedColorPane = createEl('div', { id: 'selected-color-section', className: 'control-section' });
+   const colormapPreviewPane = createEl('div', { id: 'current-colormap-section', className: 'control-section' });
 
-        Object.values(this.elements.interactiveCanvases).forEach(canvas => {
-            canvas.addEventListener('mouseenter', () => { this.state.isMouseInCanvas = true; });
-            canvas.addEventListener('mouseleave', () => { this.state.isMouseInCanvas = false; });
-        });
+   const hsHeader = createEl('div', { className: 'panel-header' });
+   this.elements.tabRgbCube = createEl('button', { id: 'tab-rgb-cube', className: 'tab-button', text: 'RGB Cube' });
+   this.elements.tabHslCone = createEl('button', { id: 'tab-hsl-cone', className: 'tab-button', text: 'HSL Di-Cone' });
+   hsHeader.append(this.elements.tabRgbCube, this.elements.tabHslCone);
+   const hsContainer = createEl('div', { id: 'hs-canvas-container', className: 'canvas-container' });
+   const hsNodesContainer = createEl('div', { id: 'hs-nodes-container', className: 'absolute top-0 left-0 w-full h-full' });
+   hsContainer.append(createEl('canvas', { id: 'hs-bg-canvas' }), hsNodesContainer);
+   hsPane.append(hsHeader, hsContainer);
 
-        this.elements.hsNodesContainer.addEventListener('mousedown', (e) => this.handleMouseDown(e, 'hs'));
-        this.elements.lightnessNodesContainer.addEventListener('mousedown', (e) => this.handleMouseDown(e, 'lightness'));
-        this.elements.alphaNodesContainer.addEventListener('mousedown', (e) => this.handleMouseDown(e, 'alpha'));
+   const lightnessHeader = createEl('h2', { className: 'panel-header', text: 'Lightness' });
+   const lightnessContainer = createEl('div', { id: 'lightness-slider-container', className: 'canvas-container' });
+   const lightnessNodesContainer = createEl('div', { id: 'lightness-nodes-container', className: 'absolute top-0 left-0 w-full h-full' });
+   lightnessContainer.append(createEl('canvas', { id: 'lightness-bg-canvas' }), lightnessNodesContainer);
+   lightnessPane.append(lightnessHeader, lightnessContainer);
 
-        document.addEventListener('keydown', (e) => this.handleKeyDown(e));
+   const alphaHeader = createEl('h2', { className: 'panel-header', text: 'Alpha' });
+   const alphaContainer = createEl('div', { id: 'alpha-slider-container', className: 'canvas-container' });
+   const alphaNodesContainer = createEl('div', { id: 'alpha-nodes-container', className: 'absolute top-0 left-0 w-full h-full' });
+   alphaContainer.append(createEl('canvas', { id: 'alpha-bg-canvas' }), alphaNodesContainer);
+   alphaPane.append(alphaHeader, alphaContainer);
 
-        this.elements.lightnessInput.addEventListener('change', (e) => this.handleInputChange(e, 'lightness'));
-        this.elements.alphaInput.addEventListener('change', (e) => this.handleInputChange(e, 'alpha'));
+   const colorsHeader = createEl('div', { className: 'preset-category-header' });
+   colorsHeader.append(createEl('span', { className: 'preset-category-title', text: 'Colors' }), createEl('button', { className: 'add-preset-btn', text: '+' }));
+   this.elements.colorsPresetsWrapper.append(colorsHeader, createEl('div', { className: 'preset-items-container' }));
 
-        const colorChangeHandler = () => this.handleColorInputChange();
-        this.elements.rgbRInput.addEventListener('change', colorChangeHandler);
-        this.elements.rgbGInput.addEventListener('change', colorChangeHandler);
-        this.elements.rgbBInput.addEventListener('change', colorChangeHandler);
-        this.elements.hslHInput.addEventListener('change', colorChangeHandler);
-        this.elements.hslSInput.addEventListener('change', colorChangeHandler);
-        this.elements.hslLInput.addEventListener('change', colorChangeHandler);
+   const colormapsHeader = createEl('div', { className: 'preset-category-header' });
+   colormapsHeader.append(createEl('span', { className: 'preset-category-title', text: 'Colormaps' }), createEl('button', { className: 'add-preset-btn', text: '+' }));
+   this.elements.colormapsPresetsWrapper.append(colormapsHeader, createEl('div', { className: 'preset-items-container' }));
 
-        const presetEventHandler = (e) => {
-            const target = e.target.closest('.preset-item');
-            if (target) {
-                if (e.type === 'click') {
-                    this.handlePresetClick(target);
-                } else if (e.type === 'contextmenu' && target.dataset.custom === 'true') {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    this.showContextMenu(e, target.dataset.name, target.dataset.type);
-                }
-            }
-        };
+   const scTitle = createEl('h3', { className: 'section-title', text: 'Selected Color' });
+   const scPreviewContainer = createEl('div', { className: 'preview-container' });
+   scPreviewContainer.append(createEl('canvas', { id: 'selected-color-preview-canvas' }));
+   const inputsWrapper = createEl('div', { className: 'space-y-2' });
+   const lightnessAlphaGrid = createEl('div', { className: 'grid grid-cols-2 gap-2' });
+   const lightnessGroup = createEl('div');
+   lightnessGroup.append(createEl('h3', { className: 'input-label', text: 'Lightness' }), createEl('input', { type: 'text', id: 'lightness-input', className: 'value-input' }));
+   const alphaGroup = createEl('div');
+   alphaGroup.append(createEl('h3', { className: 'input-label', text: 'Alpha' }), createEl('input', { type: 'text', id: 'alpha-input', className: 'value-input' }));
+   lightnessAlphaGrid.append(lightnessGroup, alphaGroup);
+   const colorReadoutContainer = createEl('div', { id: 'color-readout-container' });
+   this.elements.rgbInputsContainer = createEl('div', { id: 'rgb-inputs-container' });
+   this.elements.rgbInputsContainer.append(createEl('h3', { className: 'input-label text-center mb-1', text: 'RGB (0-255)' }), createEl('div', { className: 'rgb-inputs-grid' }));
+   this.elements.rgbInputsContainer.querySelector('.rgb-inputs-grid').append(createEl('input', { type: 'text', id: 'rgb-r-input', placeholder: 'R', className: 'value-input' }), createEl('input', { type: 'text', id: 'rgb-g-input', placeholder: 'G', className: 'value-input' }), createEl('input', { type: 'text', id: 'rgb-b-input', placeholder: 'B', className: 'value-input' }));
+   this.elements.hslInputsContainer = createEl('div', { id: 'hsl-inputs-container', className: 'hidden' });
+   this.elements.hslInputsContainer.append(createEl('h3', { className: 'input-label text-center mb-1', text: 'HSL (0-1)' }), createEl('div', { className: 'hsl-inputs-grid' }));
+   this.elements.hslInputsContainer.querySelector('.hsl-inputs-grid').append(createEl('input', { type: 'text', id: 'hsl-h-input', placeholder: 'H', className: 'value-input' }), createEl('input', { type: 'text', id: 'hsl-s-input', placeholder: 'S', className: 'value-input' }), createEl('input', { type: 'text', id: 'hsl-l-input', placeholder: 'L', className: 'value-input' }));
+   colorReadoutContainer.append(this.elements.rgbInputsContainer, this.elements.hslInputsContainer);
+   inputsWrapper.append(lightnessAlphaGrid, colorReadoutContainer);
+   selectedColorPane.append(scTitle, scPreviewContainer, inputsWrapper);
+   
+   const cmHeader = createEl('h3', { className: 'section-title text-center', text: 'Current Colormap' });
+   const cmPreviewContainer = createEl('div', { className: 'preview-container' });
+   cmPreviewContainer.append(createEl('canvas', { id: 'colormap-preview-canvas' }));
+   
+   const buttonContainer = createEl('div', { className: 'button-container' });
+    this.elements.reverseButton = createEl('button', { id: 'reverse-button', className: 'reverse-button', text: 'Reverse' });
+    this.elements.closeButton = createEl('button', { id: 'close-button', className: 'close-button', text: 'Close' });
+    this.elements.selectButton = createEl('button', { id: 'select-button', className: 'select-button', text: 'Select' });
+    buttonContainer.append(this.elements.reverseButton, this.elements.closeButton, this.elements.selectButton);
 
-        this.elements.colorsPresetsWrapper.addEventListener('click', presetEventHandler);
-        this.elements.colorsPresetsWrapper.addEventListener('contextmenu', presetEventHandler);
-        this.elements.colormapsPresetsWrapper.addEventListener('click', presetEventHandler);
-        this.elements.colormapsPresetsWrapper.addEventListener('contextmenu', presetEventHandler);
+colormapPreviewPane.append(cmHeader, cmPreviewContainer, buttonContainer);
 
-        // --- THIS IS THE MODIFIED PART ---
-        this.elements.selectButton.addEventListener('click', () => {
-            // Get the current colormap data in a clean format
-            const output = {
-                points: this.state.points.map(p => {
-                    const color = this.abstractToRgb(p.hsPos.u, p.hsPos.v, p.lightness);
-                    const rgb = this.clampColor(color);
-                    return {
-                        pos: parseFloat(p.pos.toFixed(4)),
-                        alpha: parseFloat(p.alpha.toFixed(4)),
-                        color: [rgb.r, rgb.g, rgb.b],
-                        order: p.order
-                    };
-                })
-            };
+   this.elements.modalOverlay = createEl('div', { id: 'modal-overlay', className: 'modal-overlay hidden' });
+   const modalDialog = createEl('div', { id: 'modal-dialog', className: 'modal-dialog' });
+   modalDialog.append(createEl('h3', { id: 'modal-title', className: 'modal-title' }), createEl('div', { id: 'modal-input-container', className: 'hidden' }), createEl('div', { id: 'modal-buttons', className: 'modal-buttons' }));
+   modalDialog.querySelector('#modal-input-container').append(createEl('input', { type: 'text', id: 'modal-input', className: 'modal-input' }));
+   this.elements.modalOverlay.append(modalDialog);
+   this.elements.contextMenu = createEl('div', { id: 'context-menu', className: 'context-menu hidden' });
 
-            // Dispatch a custom event from the component's main wrapper element.
-            // The colormap data is passed in the 'detail' property.
-            const selectEvent = new CustomEvent('select', {
-                detail: output,
-                bubbles: true, // Allows the event to bubble up through the DOM
-                cancelable: true
-            });
-            this.wrapper.dispatchEvent(selectEvent);
-        });
-    }
+   this.wrapper.append(hsPane, lightnessPane, this.elements.colorsPresetsWrapper, selectedColorPane, alphaPane, this.elements.colormapsPresetsWrapper, colormapPreviewPane, this.elements.modalOverlay, this.elements.contextMenu);
+
+   this.createInteractiveCanvas(hsNodesContainer, 'hs');
+   this.createInteractiveCanvas(lightnessNodesContainer, 'lightness');
+   this.createInteractiveCanvas(alphaNodesContainer, 'alpha');
+}
+
+reverseColormap() {
+   if (this.state.points.length === 0) return;
+   
+   this.markAsDirty();
+   
+   this.state.points.forEach(point => {
+       point.pos = 1 - point.pos;
+   });
+   
+   this.sortPoints();
+   this.drawAll();
+}
+
+setupEventListeners() {
+   this.elements.tabRgbCube.addEventListener('click', () => this.setColorSpace('RGB_CUBE'));
+   this.elements.tabHslCone.addEventListener('click', () => this.setColorSpace('HSL_DI_CONE'));
+
+   this.wrapper.addEventListener('contextmenu', (e) => {
+       e.preventDefault();
+       e.stopPropagation();
+       
+       const canvas = e.target.closest('.interactive-canvas');
+       if (canvas) {
+           this.deselectAll();
+       }
+   });
+
+   document.addEventListener('click', () => this.hideContextMenu());
+
+   const resizeObserver = new ResizeObserver(() => this.setupCanvases());
+   resizeObserver.observe(this.wrapper);
+
+   Object.values(this.elements.interactiveCanvases).forEach(canvas => {
+       canvas.addEventListener('mouseenter', () => { this.state.isMouseInCanvas = true; });
+       canvas.addEventListener('mouseleave', () => { this.state.isMouseInCanvas = false; });
+   });
+
+   this.elements.hsNodesContainer.addEventListener('mousedown', (e) => this.handleMouseDown(e, 'hs'));
+   this.elements.lightnessNodesContainer.addEventListener('mousedown', (e) => this.handleMouseDown(e, 'lightness'));
+   this.elements.alphaNodesContainer.addEventListener('mousedown', (e) => this.handleMouseDown(e, 'alpha'));
+
+   document.addEventListener('keydown', (e) => this.handleKeyDown(e));
+
+   this.elements.lightnessInput.addEventListener('change', (e) => this.handleInputChange(e, 'lightness'));
+   this.elements.alphaInput.addEventListener('change', (e) => this.handleInputChange(e, 'alpha'));
+
+   const colorChangeHandler = () => this.handleColorInputChange();
+   this.elements.rgbRInput.addEventListener('change', colorChangeHandler);
+   this.elements.rgbGInput.addEventListener('change', colorChangeHandler);
+   this.elements.rgbBInput.addEventListener('change', colorChangeHandler);
+   this.elements.hslHInput.addEventListener('change', colorChangeHandler);
+   this.elements.hslSInput.addEventListener('change', colorChangeHandler);
+   this.elements.hslLInput.addEventListener('change', colorChangeHandler);
+
+   const presetEventHandler = (e) => {
+       const target = e.target.closest('.preset-item');
+       if (target) {
+           if (e.type === 'click') {
+               this.handlePresetClick(target);
+           } else if (e.type === 'contextmenu' && target.dataset.custom === 'true') {
+               e.preventDefault();
+               e.stopPropagation();
+               this.showContextMenu(e, target.dataset.name, target.dataset.type);
+           }
+       }
+   };
+
+   this.elements.colorsPresetsWrapper.addEventListener('click', presetEventHandler);
+   this.elements.colorsPresetsWrapper.addEventListener('contextmenu', presetEventHandler);
+   this.elements.colormapsPresetsWrapper.addEventListener('click', presetEventHandler);
+   this.elements.colormapsPresetsWrapper.addEventListener('contextmenu', presetEventHandler);
+
+   this.elements.reverseButton.addEventListener('click', () => {
+       this.reverseColormap();
+   });
+
+   this.elements.closeButton.addEventListener('click', () => {
+       this.hide();
+   });
+
+   this.elements.selectButton.addEventListener('click', () => {
+       const output = {
+           points: this.state.points.map(p => {
+               const color = this.abstractToRgb(p.hsPos.u, p.hsPos.v, p.lightness);
+               const rgb = this.clampColor(color);
+               return {
+                   pos: parseFloat(p.pos.toFixed(4)),
+                   alpha: parseFloat(p.alpha.toFixed(4)),
+                   color: [rgb.r, rgb.g, rgb.b],
+                   order: p.order
+               };
+           })
+       };
+
+       const selectEvent = new CustomEvent('select', {
+           detail: output,
+           bubbles: true,
+           cancelable: true
+       });
+       this.wrapper.dispatchEvent(selectEvent);
+   });
+}
 
     
         showContextMenu(e, name, type) {
@@ -749,12 +771,12 @@ initializeDOM() {
         }
     
         deselectAll() {
-            if (this.state.selectedPointIds.size > 0) {
-                this.state.selectedPointIds.clear();
-                this.state.lastSelectedPointId = null;
-                this.drawAll();
-            }
-        }
+   if (this.state.selectedPointIds.size > 0) {
+       this.state.selectedPointIds.clear();
+       this.state.lastSelectedPointId = null;
+       this.drawAll();
+   }
+}
     
         // Replace the setupCanvases method in your ColormapSelector class with this fixed version:
 
@@ -957,51 +979,58 @@ setupCanvases() {
         }
     
         handleClick(x, y, type, hitPoint, e) {
-            const { shiftKey, ctrlKey, metaKey } = e;
-            const isCtrlPressed = ctrlKey || metaKey;
-    
-            if (hitPoint) {
-                const { selectedPointIds } = this.state;
-                const pointId = hitPoint.id;
-    
-                if (this.clickCount === 3) {
-                    this.state.points.forEach(p => selectedPointIds.add(p.id));
-                } else if (this.clickCount === 2) {
-                    const hitIndex = this.state.points.findIndex(p => p.id === pointId);
-                    selectedPointIds.clear();
-                    const indicesToSelect = [hitIndex - 1, hitIndex, hitIndex + 1];
-                    indicesToSelect.forEach(index => {
-                        if (index >= 0 && index < this.state.points.length) {
-                            selectedPointIds.add(this.state.points[index].id);
-                        }
-                    });
-                } else if (isCtrlPressed) {
-                    if (selectedPointIds.has(pointId)) {
-                        if (selectedPointIds.size > 1) selectedPointIds.delete(pointId);
-                    } else {
-                        selectedPointIds.add(pointId);
-                    }
-                } else if (shiftKey) {
-                    selectedPointIds.add(pointId);
-                } else {
-                    selectedPointIds.clear();
-                    selectedPointIds.add(pointId);
-                }
-                this.state.lastSelectedPointId = pointId;
-            } else if (type === 'hs') {
-                this.createNewPointHS(x, y);
-            } else if (type === 'lightness' || type === 'alpha') {
-                const canvas = this.elements.interactiveCanvases[type];
-                const value = Math.max(0, Math.min(1, 1 - (y / canvas.height)));
-                if (type === 'lightness') {
-                    this.state.viewLightness = value;
-                } else {
-                    this.state.viewAlpha = value;
-                }
-            }
-            this.drawAll();
-        }
-    
+   const { shiftKey, ctrlKey, metaKey } = e;
+   const isCtrlPressed = ctrlKey || metaKey;
+
+   if (hitPoint) {
+       const { selectedPointIds } = this.state;
+       const pointId = hitPoint.id;
+
+       if (this.clickCount === 3) {
+           this.state.points.forEach(p => selectedPointIds.add(p.id));
+           this.state.lastSelectedPointId = this.state.points.length > 0 ? this.state.points[this.state.points.length - 1].id : null;
+       } else if (this.clickCount === 2) {
+           const hitIndex = this.state.points.findIndex(p => p.id === pointId);
+           selectedPointIds.clear();
+           const indicesToSelect = [hitIndex - 1, hitIndex, hitIndex + 1];
+           indicesToSelect.forEach(index => {
+               if (index >= 0 && index < this.state.points.length) {
+                   selectedPointIds.add(this.state.points[index].id);
+               }
+           });
+           this.state.lastSelectedPointId = pointId;
+       } else if (isCtrlPressed) {
+           if (selectedPointIds.has(pointId)) {
+               selectedPointIds.delete(pointId);
+               if (this.state.lastSelectedPointId === pointId) {
+                   this.state.lastSelectedPointId = selectedPointIds.size > 0 ? Array.from(selectedPointIds)[0] : null;
+               }
+           } else {
+               selectedPointIds.add(pointId);
+               this.state.lastSelectedPointId = pointId;
+           }
+       } else if (shiftKey) {
+           selectedPointIds.add(pointId);
+           this.state.lastSelectedPointId = pointId;
+       } else {
+           selectedPointIds.clear();
+           selectedPointIds.add(pointId);
+           this.state.lastSelectedPointId = pointId;
+       }
+   } else if (type === 'hs') {
+       this.createNewPointHS(x, y);
+   } else if (type === 'lightness' || type === 'alpha') {
+       const canvas = this.elements.interactiveCanvases[type];
+       const value = Math.max(0, Math.min(1, 1 - (y / canvas.height)));
+       if (type === 'lightness') {
+           this.state.viewLightness = value;
+       } else {
+           this.state.viewAlpha = value;
+       }
+   }
+   this.drawAll();
+}
+
         handleInputChange(e, type) {
             const value = e.target.value;
             if (this.state.selectedPointIds.size === 0) return;
@@ -1147,75 +1176,73 @@ setupCanvases() {
         }
     
         handleKeyDown(e) {
-            const activeEl = document.activeElement;
-            const isEditingText = activeEl && activeEl.tagName === 'INPUT';
-            const isCtrl = e.ctrlKey || e.metaKey;
-    
-            if (isCtrl && e.key === 'z') {
-                e.preventDefault();
-                this.undo();
-                return;
-            }
-            if (isCtrl && e.key === 'y') {
-                e.preventDefault();
-                this.redo();
-                return;
-            }
-    
-            if (isEditingText) {
-                if (e.key === 'Escape') {
-                    e.preventDefault();
-                    activeEl.blur();
-                }
-                return;
-            }
-    
-            if (['0', '1', '2', '3', '4'].includes(e.key)) {
-                if (this.state.isMouseInCanvas && this.state.selectedPointIds.size > 0) {
-                    this.markAsDirty();
-                    const newOrder = parseInt(e.key, 10);
-                    this.state.points.forEach(point => {
-                        if (this.state.selectedPointIds.has(point.id)) {
-                            point.order = newOrder;
-                        }
-                    });
-                    this.drawAll();
-                }
-                return;
-            }
-    
-            if (e.key === 'Escape') {
-                e.preventDefault();
-                this.deselectAll();
-                return;
-            }
-    
-            if (e.key === 'Delete' || e.key === 'Backspace') {
-                if (this.state.selectedPointIds.size > 0) {
-                    this.markAsDirty();
-                    this.state.points = this.state.points.filter(point => !this.state.selectedPointIds.has(point.id));
-                    this.state.selectedPointIds.clear();
-                    this.state.lastSelectedPointId = null;
-                    if (this.state.points.length === 0) {
-                        const initialPointId = Date.now();
-                        const initialPoint = {
-                            id: initialPointId,
-                            hsPos: { u: 0, v: 0 },
-                            originalHsPos: { u: 0, v: 0 },
-                            lightness: 0.5,
-                            alpha: 1.0,
-                            pos: 0.5,
-                            order: 1,
-                        };
-                        this.state.points.push(initialPoint);
-                        this.state.selectedPointIds.add(initialPoint.id);
-                        this.state.lastSelectedPointId = initialPoint.id;
-                    }
-                    this.drawAll();
-                }
-            }
-        }
-    
+   const activeEl = document.activeElement;
+   const isEditingText = activeEl && activeEl.tagName === 'INPUT';
+   const isCtrl = e.ctrlKey || e.metaKey;
+
+   if (isCtrl && e.key === 'z') {
+       e.preventDefault();
+       this.undo();
+       return;
+   }
+   if (isCtrl && e.key === 'y') {
+       e.preventDefault();
+       this.redo();
+       return;
+   }
+
+   if (isEditingText) {
+       if (e.key === 'Escape') {
+           e.preventDefault();
+           activeEl.blur();
+       }
+       return;
+   }
+
+   if (isCtrl && e.key === 'a') {
+       e.preventDefault();
+       if (this.state.isMouseInCanvas) {
+           this.state.selectedPointIds.clear();
+           this.state.points.forEach(p => this.state.selectedPointIds.add(p.id));
+           if (this.state.points.length > 0) {
+               this.state.lastSelectedPointId = this.state.points[this.state.points.length - 1].id;
+           }
+           this.drawAll();
+       }
+       return;
+   }
+
+   if (['0', '1', '2', '3', '4'].includes(e.key)) {
+       if (this.state.isMouseInCanvas && this.state.selectedPointIds.size > 0) {
+           this.markAsDirty();
+           const newOrder = parseInt(e.key, 10);
+           this.state.points.forEach(point => {
+               if (this.state.selectedPointIds.has(point.id)) {
+                   point.order = newOrder;
+               }
+           });
+           this.drawAll();
+       }
+       return;
+   }
+
+   if (e.key === 'Escape') {
+       e.preventDefault();
+       this.deselectAll();
+       return;
+   }
+
+   if (e.key === 'Delete' || e.key === 'Backspace') {
+       if (this.state.selectedPointIds.size > 0) {
+           this.markAsDirty();
+           this.state.points = this.state.points.filter(point => !this.state.selectedPointIds.has(point.id));
+           this.state.selectedPointIds.clear();
+           this.state.lastSelectedPointId = null;
+           this.drawAll();
+       }
+   }
+}
+
         findSnapPosition(currentY, canvasHeight, sliderType, ignorePointId = null) {
             let snappedY = currentY;
             let minDistance = C.SNAP_DISTANCE + 1;
@@ -1238,11 +1265,11 @@ setupCanvases() {
         }
     
         getLastSelectedPoint() {
-            if (!this.state.lastSelectedPointId) {
-                return this.state.points[0] || null;
-            }
-            return this.state.points.find(p => p.id === this.state.lastSelectedPointId);
-        }
+   if (!this.state.lastSelectedPointId || !this.state.selectedPointIds.has(this.state.lastSelectedPointId)) {
+       return null;
+   }
+   return this.state.points.find(p => p.id === this.state.lastSelectedPointId);
+}
     
         getPointById(id) {
             return this.state.points.find(p => p.id === id);
@@ -1439,16 +1466,15 @@ setupCanvases() {
         }
     
         drawConnectingLine(ctx, type) {
-        // This guard clause prevents the function from running if the canvas has no area.
-        if (this.state.points.length <= 1 || ctx.canvas.width === 0) {
-            return;
-        }
+    if (this.state.points.length === 0 || ctx.canvas.width === 0) {
+        return;
+    }
 
-        ctx.lineWidth = C.LINE_WIDTH_DEFAULT;
-        ctx.globalAlpha = 0.7;
+    ctx.lineWidth = C.LINE_WIDTH_DEFAULT;
+    ctx.globalAlpha = 0.7;
 
+    if (type === 'hs') {
         ctx.beginPath();
-
         for (let i = 0; i < this.state.points.length - 1; i++) {
             const p1 = this.state.points[i];
             const p2 = this.state.points[i + 1];
@@ -1463,19 +1489,9 @@ setupCanvases() {
                 const props = this.getInterpolatedPropertiesAt(t);
                 if (!props) continue;
 
-                let x, y;
-                if (type === 'hs') {
-                    const clamped = this.clampAbstractPoint(props.u, props.v, props.lightness);
-                    x = clamped.u * this.state.transform.scale + this.state.transform.offsetX;
-                    y = clamped.v * this.state.transform.scale + this.state.transform.offsetY;
-                } else {
-                    x = t * ctx.canvas.width;
-                    if (type === 'lightness') {
-                        y = (1 - props.lightness) * ctx.canvas.height;
-                    } else {
-                        y = (1 - props.alpha) * ctx.canvas.height;
-                    }
-                }
+                const clamped = this.clampAbstractPoint(props.u, props.v, props.lightness);
+                const x = clamped.u * this.state.transform.scale + this.state.transform.offsetX;
+                const y = clamped.v * this.state.transform.scale + this.state.transform.offsetY;
 
                 if (j === 0 && i === 0) {
                     ctx.moveTo(x, y);
@@ -1484,28 +1500,46 @@ setupCanvases() {
                 }
             }
         }
-
         ctx.strokeStyle = 'black';
-        if (type !== 'hs') {
-            ctx.globalAlpha = 1.0;
-            const gradient = ctx.createLinearGradient(0, 0, ctx.canvas.width, 0);
-            const numGradientStops = Math.min(256, ctx.canvas.width);
-            for (let i = 0; i <= numGradientStops; i++) {
-                const t = i / numGradientStops;
-                const props = this.getInterpolatedPropertiesAt(t);
-                if (!props) continue;
+        ctx.stroke();
+    } else {
+        ctx.beginPath();
+        
+        const numSteps = Math.max(2, ctx.canvas.width / 4);
+        for (let i = 0; i <= numSteps; i++) {
+            const t = i / numSteps;
+            const props = this.getInterpolatedPropertiesAt(t);
+            if (!props) continue;
 
-                const clamped = this.clampAbstractPoint(props.u, props.v, props.lightness);
-                const color = this.abstractToRgb(clamped.u, clamped.v, props.lightness);
-                const { r, g, b } = this.clampColor(color);
-                gradient.addColorStop(t, `rgba(${r}, ${g}, ${b}, ${props.alpha})`);
+            const x = t * ctx.canvas.width;
+            const y = type === 'lightness' ? (1 - props.lightness) * ctx.canvas.height : (1 - props.alpha) * ctx.canvas.height;
+
+            if (i === 0) {
+                ctx.moveTo(x, y);
+            } else {
+                ctx.lineTo(x, y);
             }
-            ctx.strokeStyle = gradient;
         }
 
-        ctx.stroke();
         ctx.globalAlpha = 1.0;
+        const gradient = ctx.createLinearGradient(0, 0, ctx.canvas.width, 0);
+        const numGradientStops = Math.min(256, ctx.canvas.width);
+        for (let i = 0; i <= numGradientStops; i++) {
+            const t = i / numGradientStops;
+            const props = this.getInterpolatedPropertiesAt(t);
+            if (!props) continue;
+
+            const clamped = this.clampAbstractPoint(props.u, props.v, props.lightness);
+            const color = this.abstractToRgb(clamped.u, clamped.v, props.lightness);
+            const { r, g, b } = this.clampColor(color);
+            gradient.addColorStop(t, `rgba(${r}, ${g}, ${b}, ${props.alpha})`);
+        }
+        ctx.strokeStyle = gradient;
+        ctx.stroke();
     }
+
+    ctx.globalAlpha = 1.0;
+}
 
     
         drawHSElements() {
@@ -1561,44 +1595,72 @@ setupCanvases() {
         }
     
         drawLightnessElements() {
-            const canvas = this.elements.interactiveCanvases['lightness'];
-            if (!canvas) return;
-            const ctx = canvas.getContext('2d');
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            this.drawHorizontalLine(ctx, (1 - this.state.viewLightness) * canvas.height);
-            if (this.state.points.length > 1) {
-                this.drawConnectingLine(ctx, 'lightness');
-            }
-            this.state.points.forEach((point) => {
-                const x = point.pos * canvas.width;
-                const y = (1 - point.lightness) * canvas.height;
-                const color = this.abstractToRgb(point.hsPos.u, point.hsPos.v, point.lightness);
-                const {r, g, b} = this.clampColor(color);
-                const isSelected = this.state.selectedPointIds.has(point.id);
-                const isLastSelected = point.id === this.state.lastSelectedPointId;
-                this.drawPoint(ctx, x, y, r, g, b, isSelected, isLastSelected, point.order);
-            });
-        }
+    const canvas = this.elements.interactiveCanvases['lightness'];
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    this.drawHorizontalLine(ctx, (1 - this.state.viewLightness) * canvas.height);
+    
+    this.drawConnectingLine(ctx, 'lightness');
+    this.drawTicks(ctx, 'lightness');
+    
+    this.state.points.forEach((point) => {
+        const x = point.pos * canvas.width;
+        const y = (1 - point.lightness) * canvas.height;
+        const color = this.abstractToRgb(point.hsPos.u, point.hsPos.v, point.lightness);
+        const {r, g, b} = this.clampColor(color);
+        const isSelected = this.state.selectedPointIds.has(point.id);
+        const isLastSelected = point.id === this.state.lastSelectedPointId;
+        this.drawPoint(ctx, x, y, r, g, b, isSelected, isLastSelected, point.order);
+    });
+}
+drawTicks(ctx, type) {
+    // const canvas = ctx.canvas;
+    // ctx.save();
+    
+    // const tickColor = type === 'lightness' ? '#ffffff' : '#000000';
+    // ctx.strokeStyle = tickColor;
+    // ctx.fillStyle = tickColor;
+    // ctx.lineWidth = 1;
+    // ctx.font = '10px Inter, sans-serif';
+    // ctx.textAlign = 'center';
+    // ctx.textBaseline = 'bottom';
+    
+    // for (let i = 0; i <= 10; i++) {
+    //     const value = i / 10;
+    //     const x = value * canvas.width;
+        
+    //     ctx.beginPath();
+    //     ctx.moveTo(x, canvas.height);
+    //     ctx.lineTo(x, canvas.height - 10);
+    //     ctx.stroke();
+        
+    //     ctx.fillText(value.toFixed(1), x, canvas.height - 12);
+    // }
+    
+    // ctx.restore();
+}
     
         drawAlphaElements() {
-            const canvas = this.elements.interactiveCanvases['alpha'];
-            if (!canvas) return;
-            const ctx = canvas.getContext('2d');
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            this.drawHorizontalLine(ctx, (1 - this.state.viewAlpha) * canvas.height);
-            if (this.state.points.length > 1) {
-                this.drawConnectingLine(ctx, 'alpha');
-            }
-            this.state.points.forEach((point) => {
-                const x = point.pos * canvas.width;
-                const y = (1 - point.alpha) * canvas.height;
-                const color = this.abstractToRgb(point.hsPos.u, point.hsPos.v, point.lightness);
-                const {r, g, b} = this.clampColor(color);
-                const isSelected = this.state.selectedPointIds.has(point.id);
-                const isLastSelected = point.id === this.state.lastSelectedPointId;
-                this.drawPoint(ctx, x, y, r, g, b, isSelected, isLastSelected, point.order);
-            });
-        }
+    const canvas = this.elements.interactiveCanvases['alpha'];
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    this.drawHorizontalLine(ctx, (1 - this.state.viewAlpha) * canvas.height);
+    
+    this.drawConnectingLine(ctx, 'alpha');
+    this.drawTicks(ctx, 'alpha');
+    
+    this.state.points.forEach((point) => {
+        const x = point.pos * canvas.width;
+        const y = (1 - point.alpha) * canvas.height;
+        const color = this.abstractToRgb(point.hsPos.u, point.hsPos.v, point.lightness);
+        const {r, g, b} = this.clampColor(color);
+        const isSelected = this.state.selectedPointIds.has(point.id);
+        const isLastSelected = point.id === this.state.lastSelectedPointId;
+        this.drawPoint(ctx, x, y, r, g, b, isSelected, isLastSelected, point.order);
+    });
+}
     
         _drawCircle(ctx, x, y, radius) {
             ctx.arc(x, y, radius, 0, 2 * Math.PI);
@@ -1705,85 +1767,89 @@ setupCanvases() {
         }
     
         updateUIReadouts() {
-            const lastSelectedPoint = this.getLastSelectedPoint();
-            const activeElement = document.activeElement;
-    
-            const isRgb = this.state.colorSpace === 'RGB_CUBE';
-            this.elements.rgbInputsContainer.classList.toggle('hidden', !isRgb);
-            this.elements.hslInputsContainer.classList.toggle('hidden', isRgb);
-    
-            if (activeElement !== this.elements.lightnessInput) {
-                this.elements.lightnessInput.value = lastSelectedPoint ? lastSelectedPoint.lightness.toFixed(2) : '--';
-            }
-            if (activeElement !== this.elements.alphaInput) {
-                this.elements.alphaInput.value = lastSelectedPoint ? lastSelectedPoint.alpha.toFixed(2) : '--';
-            }
-    
-            const isEditingColor = [
-                this.elements.rgbRInput, this.elements.rgbGInput, this.elements.rgbBInput,
-                this.elements.hslHInput, this.elements.hslSInput, this.elements.hslLInput
-            ].includes(activeElement);
-    
-            if (!lastSelectedPoint) {
-                if (!isEditingColor) {
-                    this.elements.rgbRInput.value = '';
-                    this.elements.rgbGInput.value = '';
-                    this.elements.rgbBInput.value = '';
-                    this.elements.hslHInput.value = '';
-                    this.elements.hslSInput.value = '';
-                    this.elements.hslLInput.value = '';
-                }
-                this.drawColormapPreview();
-                this.drawSelectedColorPreview();
-                return;
-            }
-    
-            if (!isEditingColor) {
-                const { lightness, hsPos } = lastSelectedPoint;
-                const color = this.abstractToRgb(hsPos.u, hsPos.v, lightness);
-    
-                if (isRgb) {
-                    const { r, g, b } = this.clampColor(color);
-                    this.elements.rgbRInput.value = r;
-                    this.elements.rgbGInput.value = g;
-                    this.elements.rgbBInput.value = b;
-                } else {
-                    const hsl = this.rgbToHsl(color.r, color.g, color.b);
-                    this.elements.hslHInput.value = hsl.h.toFixed(2);
-                    this.elements.hslSInput.value = hsl.s.toFixed(2);
-                    this.elements.hslLInput.value = hsl.l.toFixed(2);
-                }
-            }
-    
-            this.drawColormapPreview();
-            this.drawSelectedColorPreview();
-        }
+   const lastSelectedPoint = this.getLastSelectedPoint();
+   const activeElement = document.activeElement;
+
+   const isRgb = this.state.colorSpace === 'RGB_CUBE';
+   this.elements.rgbInputsContainer.classList.toggle('hidden', !isRgb);
+   this.elements.hslInputsContainer.classList.toggle('hidden', isRgb);
+
+   if (activeElement !== this.elements.lightnessInput) {
+       this.elements.lightnessInput.value = lastSelectedPoint ? lastSelectedPoint.lightness.toFixed(2) : '--';
+   }
+   if (activeElement !== this.elements.alphaInput) {
+       this.elements.alphaInput.value = lastSelectedPoint ? lastSelectedPoint.alpha.toFixed(2) : '--';
+   }
+
+   const isEditingColor = [
+       this.elements.rgbRInput, this.elements.rgbGInput, this.elements.rgbBInput,
+       this.elements.hslHInput, this.elements.hslSInput, this.elements.hslLInput
+   ].includes(activeElement);
+
+   if (!lastSelectedPoint) {
+       if (!isEditingColor) {
+           this.elements.rgbRInput.value = '';
+           this.elements.rgbGInput.value = '';
+           this.elements.rgbBInput.value = '';
+           this.elements.hslHInput.value = '';
+           this.elements.hslSInput.value = '';
+           this.elements.hslLInput.value = '';
+       }
+       this.elements.selectButton.disabled = this.state.points.length === 0;
+       this.elements.reverseButton.disabled = this.state.points.length === 0;
+       this.drawColormapPreview();
+       this.drawSelectedColorPreview();
+       return;
+   }
+
+   this.elements.selectButton.disabled = false;
+   this.elements.reverseButton.disabled = false;
+
+   if (!isEditingColor) {
+       const { lightness, hsPos } = lastSelectedPoint;
+       const color = this.abstractToRgb(hsPos.u, hsPos.v, lightness);
+
+       if (isRgb) {
+           const { r, g, b } = this.clampColor(color);
+           this.elements.rgbRInput.value = r;
+           this.elements.rgbGInput.value = g;
+           this.elements.rgbBInput.value = b;
+       } else {
+           const hsl = this.rgbToHsl(color.r, color.g, color.b);
+           this.elements.hslHInput.value = hsl.h.toFixed(2);
+           this.elements.hslSInput.value = hsl.s.toFixed(2);
+           this.elements.hslLInput.value = hsl.l.toFixed(2);
+       }
+   }
+
+   this.drawColormapPreview();
+   this.drawSelectedColorPreview();
+}
         
         drawSelectedColorPreview() {
-            const canvas = this.elements.selectedColorPreviewCanvas;
-            if (!canvas) return;
-            
-            const { clientWidth, clientHeight } = canvas.parentElement;
-            if (canvas.width !== clientWidth || canvas.height !== clientHeight) {
-                canvas.width = clientWidth;
-                canvas.height = clientHeight;
-            }
-    
-            const ctx = canvas.getContext('2d');
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            this.drawCheckerboard(ctx);
-    
-            const lastSelectedPoint = this.getLastSelectedPoint();
-            if (lastSelectedPoint) {
-                const { hsPos, lightness, alpha } = lastSelectedPoint;
-                const color = this.abstractToRgb(hsPos.u, hsPos.v, lightness);
-                const { r, g, b } = this.clampColor(color);
-    
-                ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${alpha})`;
-                ctx.fillRect(0, 0, canvas.width, canvas.height);
-            }
-        }
-    
+   const canvas = this.elements.selectedColorPreviewCanvas;
+   if (!canvas) return;
+   
+   const { clientWidth, clientHeight } = canvas.parentElement;
+   if (canvas.width !== clientWidth || canvas.height !== clientHeight) {
+       canvas.width = clientWidth;
+       canvas.height = clientHeight;
+   }
+
+   const ctx = canvas.getContext('2d');
+   ctx.clearRect(0, 0, canvas.width, canvas.height);
+   this.drawCheckerboard(ctx);
+
+   const lastSelectedPoint = this.getLastSelectedPoint();
+   if (lastSelectedPoint) {
+       const { hsPos, lightness, alpha } = lastSelectedPoint;
+       const color = this.abstractToRgb(hsPos.u, hsPos.v, lightness);
+       const { r, g, b } = this.clampColor(color);
+
+       ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${alpha})`;
+       ctx.fillRect(0, 0, canvas.width, canvas.height);
+   }
+}
         drawColormapPreview() {
             const previewCtx = this.elements.colormapPreviewCanvas.getContext('2d');
             const width = this.elements.colormapPreviewCanvas.width;
