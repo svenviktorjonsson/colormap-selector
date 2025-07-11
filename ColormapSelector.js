@@ -1,5 +1,7 @@
 // In a file named 'ColormapSelector.js'
 import * as C from './constants.js';
+import namedColorsData from './named_colors.js';
+import namedColormapsData from './named_colormaps.js';
 
 export default class ColormapSelector {
     constructor() {
@@ -33,13 +35,14 @@ export default class ColormapSelector {
         this.elements = {};
     }
 
-    // --- New Public API ---
-
-    async initialize() {
-        // This is now the main entry point after instantiation
+    initialize() {
         try {
+            this.namedColors = namedColorsData;
+            this.namedColormaps = namedColormapsData;
+            this.customColors = JSON.parse(localStorage.getItem('customColors')) || {};
+            this.customColormaps = JSON.parse(localStorage.getItem('customColormaps')) || {};
+
             this.initializeDOM();
-            await this.loadAllPresets();
             this.populatePresets();
             this.loadColormap('viridis', 'named_colormaps', true);
             this.updateTabs();
@@ -55,8 +58,6 @@ export default class ColormapSelector {
         }
     }
 
-    
-
     hide() {
         if (!this.wrapper) return;
         this.wrapper.style.display = 'none';
@@ -67,164 +68,124 @@ export default class ColormapSelector {
         return this.wrapper;
     }
 
-    initializeDOM() {
-        this.elements = { interactiveCanvases: {} };
+    // Replace the initializeDOM method in your ColormapSelector class with this fixed version:
 
-        // Helper function to create and assign elements
-        const createEl = (tag, options = {}) => {
-            const el = document.createElement(tag);
-            if (options.id) {
-                el.id = options.id;
-                // Store a reference in this.elements if it has an ID
-                const camelCaseId = options.id.replace(/-(\w)/g, (_, letter) => letter.toUpperCase());
-                this.elements[camelCaseId] = el;
-            }
-            if (options.className) el.className = options.className;
-            if (options.text) el.textContent = options.text;
-            if (options.type) el.type = options.type;
-            if (options.placeholder) el.placeholder = options.placeholder;
-            return el;
-        };
+initializeDOM() {
+    this.elements = { interactiveCanvases: {} };
 
-        // Main Wrapper
-        this.wrapper = createEl('div', { id: 'colormap-selector-wrapper', className: 'color-editor-layout' });
-        // Updated CSS positioning and sizing
-        this.wrapper.style.cssText = `
-            position: fixed; 
-            display: none; 
-            z-index: 1000; 
-            background-color: #1a202c; 
-            padding: 0.5rem; 
-            border-radius: 0.5rem; 
-            box-shadow: 0 10px 25px rgba(0,0,0,0.3); 
-            width: 50vw; 
-            height: 50vh; 
-            right: 0; 
-            bottom: 0;
-            min-height: 400px;
-            min-width: 600px;
-        `;
+    const createEl = (tag, options = {}) => {
+        const el = document.createElement(tag);
+        if (options.id) {
+            el.id = options.id;
+            const camelCaseId = options.id.replace(/-(\w)/g, (_, letter) => letter.toUpperCase());
+            this.elements[camelCaseId] = el;
+        }
+        if (options.className) el.className = options.className;
+        if (options.text) el.textContent = options.text;
+        if (options.type) el.type = options.type;
+        if (options.placeholder) el.placeholder = options.placeholder;
+        return el;
+    };
 
-        // --- Create all panels and containers, replicating the original HTML structure ---
-        const hsPane = createEl('div', { id: 'hs-pane-wrapper', className: 'flex flex-col h-full min-w-0' });
-        const lightnessPane = createEl('div', { id: 'lightness-wrapper', className: 'flex flex-col min-h-0' });
-        const alphaPane = createEl('div', { id: 'alpha-wrapper', className: 'flex flex-col min-h-0' });
-        this.elements.colorsPresetsWrapper = createEl('div', { id: 'colors-presets-wrapper', className: 'preset-wrapper' });
-        this.elements.colormapsPresetsWrapper = createEl('div', { id: 'colormaps-presets-wrapper', className: 'preset-wrapper' });
-        const selectedColorPane = createEl('div', { id: 'selected-color-section', className: 'control-section' });
-        const colormapPreviewPane = createEl('div', { id: 'current-colormap-section', className: 'control-section' });
+    this.wrapper = createEl('div', { id: 'colormap-selector-wrapper', className: 'color-editor-layout' });
+    this.wrapper.style.cssText = `
+        position: fixed; display: none; z-index: 1000; background-color: #1a202c; 
+        padding: 0.5rem; border-radius: 0.5rem; box-shadow: 0 10px 25px rgba(0,0,0,0.3); 
+        bottom: 0.5rem; right: 0.5rem; height: 50vh; max-width: 90vw; min-height: 400px; min-width: 600px;
+    `;
 
-        // --- Build HS Panel ---
-        const hsHeader = createEl('div', { className: 'panel-header' });
-        this.elements.tabRgbCube = createEl('button', { id: 'tab-rgb-cube', className: 'tab-button', text: 'RGB Cube' });
-        this.elements.tabHslCone = createEl('button', { id: 'tab-hsl-cone', className: 'tab-button', text: 'HSL Di-Cone' });
-        hsHeader.append(this.elements.tabRgbCube, this.elements.tabHslCone);
-        const hsContainer = createEl('div', { id: 'hs-canvas-container', className: 'canvas-container' });
-        this.elements.hsBgCanvas = createEl('canvas', { id: 'hs-bg-canvas' });
-        this.elements.hsNodesContainer = createEl('div', { id: 'hs-nodes-container', className: 'absolute top-0 left-0 w-full h-full' });
-        hsContainer.append(this.elements.hsBgCanvas, this.elements.hsNodesContainer);
-        hsPane.append(hsHeader, hsContainer);
+    const hsPane = createEl('div', { id: 'hs-pane-wrapper', className: 'preset-wrapper' });
+    const lightnessPane = createEl('div', { id: 'lightness-wrapper', className: 'preset-wrapper' });
+    const alphaPane = createEl('div', { id: 'alpha-wrapper', className: 'preset-wrapper' });
+    this.elements.colorsPresetsWrapper = createEl('div', { id: 'colors-presets-wrapper', className: 'preset-wrapper' });
+    this.elements.colormapsPresetsWrapper = createEl('div', { id: 'colormaps-presets-wrapper', className: 'preset-wrapper' });
+    const selectedColorPane = createEl('div', { id: 'selected-color-section', className: 'control-section' });
+    const colormapPreviewPane = createEl('div', { id: 'current-colormap-section', className: 'control-section' });
 
-        // --- Build Lightness Panel ---
-        const lightnessHeader = createEl('h2', { className: 'panel-header', text: 'Lightness' });
-        const lightnessContainer = createEl('div', { id: 'lightness-slider-container', className: 'canvas-container' });
-        this.elements.lightnessBgCanvas = createEl('canvas', { id: 'lightness-bg-canvas' });
-        this.elements.lightnessNodesContainer = createEl('div', { id: 'lightness-nodes-container', className: 'absolute top-0 left-0 w-full h-full' });
-        lightnessContainer.append(this.elements.lightnessBgCanvas, this.elements.lightnessNodesContainer);
-        lightnessPane.append(lightnessHeader, lightnessContainer);
+    const hsHeader = createEl('div', { className: 'panel-header' });
+    this.elements.tabRgbCube = createEl('button', { id: 'tab-rgb-cube', className: 'tab-button', text: 'RGB Cube' });
+    this.elements.tabHslCone = createEl('button', { id: 'tab-hsl-cone', className: 'tab-button', text: 'HSL Di-Cone' });
+    hsHeader.append(this.elements.tabRgbCube, this.elements.tabHslCone);
+    const hsContainer = createEl('div', { id: 'hs-canvas-container', className: 'canvas-container' });
+    // Create and store the hs-nodes-container properly
+    const hsNodesContainer = createEl('div', { id: 'hs-nodes-container', className: 'absolute top-0 left-0 w-full h-full' });
+    hsContainer.append(createEl('canvas', { id: 'hs-bg-canvas' }), hsNodesContainer);
+    hsPane.append(hsHeader, hsContainer);
 
-        // --- Build Alpha Panel ---
-        const alphaHeader = createEl('h2', { className: 'panel-header', text: 'Alpha' });
-        const alphaContainer = createEl('div', { id: 'alpha-slider-container', className: 'canvas-container' });
-        this.elements.alphaBgCanvas = createEl('canvas', { id: 'alpha-bg-canvas' });
-        this.elements.alphaNodesContainer = createEl('div', { id: 'alpha-nodes-container', className: 'absolute top-0 left-0 w-full h-full' });
-        alphaContainer.append(this.elements.alphaBgCanvas, this.elements.alphaNodesContainer);
-        alphaPane.append(alphaHeader, alphaContainer);
+    const lightnessHeader = createEl('h2', { className: 'panel-header', text: 'Lightness' });
+    const lightnessContainer = createEl('div', { id: 'lightness-slider-container', className: 'canvas-container' });
+    // Create and store the lightness-nodes-container properly
+    const lightnessNodesContainer = createEl('div', { id: 'lightness-nodes-container', className: 'absolute top-0 left-0 w-full h-full' });
+    lightnessContainer.append(createEl('canvas', { id: 'lightness-bg-canvas' }), lightnessNodesContainer);
+    lightnessPane.append(lightnessHeader, lightnessContainer);
 
-        // --- Build Selected Color Panel ---
-        const scHeader = createEl('div', { className: 'section-header' });
-        const swatchContainer = createEl('div', { className: 'preview-container swatch-preview' });
-        this.elements.selectedColorPreviewCanvas = createEl('canvas', { id: 'selected-color-preview-canvas' });
-        swatchContainer.append(this.elements.selectedColorPreviewCanvas);
-        scHeader.append(swatchContainer, createEl('h3', { className: 'section-title', text: 'Selected Color' }));
-        
-        const inputsWrapper = createEl('div', { className: 'space-y-2 mt-2' });
-        const lightnessAlphaGrid = createEl('div', { className: 'grid grid-cols-2 gap-2' });
-        const lightnessGroup = createEl('div');
-        lightnessGroup.append(createEl('h3', { className: 'input-label', text: 'Lightness' }), createEl('input', { type: 'text', id: 'lightness-input', className: 'value-input' }));
-        const alphaGroup = createEl('div');
-        alphaGroup.append(createEl('h3', { className: 'input-label', text: 'Alpha' }), createEl('input', { type: 'text', id: 'alpha-input', className: 'value-input' }));
-        lightnessAlphaGrid.append(lightnessGroup, alphaGroup);
+    const alphaHeader = createEl('h2', { className: 'panel-header', text: 'Alpha' });
+    const alphaContainer = createEl('div', { id: 'alpha-slider-container', className: 'canvas-container' });
+    // Create and store the alpha-nodes-container properly
+    const alphaNodesContainer = createEl('div', { id: 'alpha-nodes-container', className: 'absolute top-0 left-0 w-full h-full' });
+    alphaContainer.append(createEl('canvas', { id: 'alpha-bg-canvas' }), alphaNodesContainer);
+    alphaPane.append(alphaHeader, alphaContainer);
 
-        const colorReadoutContainer = createEl('div', { id: 'color-readout-container' });
-        this.elements.rgbInputsContainer = createEl('div', { id: 'rgb-inputs-container' });
-        this.elements.rgbInputsContainer.append(createEl('h3', { className: 'input-label text-center mb-1', text: 'RGB (0-255)' }));
-        const rgbGrid = createEl('div', { className: 'rgb-inputs-grid' });
-        rgbGrid.append(
-            createEl('input', { type: 'text', id: 'rgb-r-input', placeholder: 'R', className: 'value-input' }),
-            createEl('input', { type: 'text', id: 'rgb-g-input', placeholder: 'G', className: 'value-input' }),
-            createEl('input', { type: 'text', id: 'rgb-b-input', placeholder: 'B', className: 'value-input' })
-        );
-        this.elements.rgbInputsContainer.append(rgbGrid);
+    const colorsHeader = createEl('div', { className: 'preset-category-header' });
+    colorsHeader.append(createEl('span', { className: 'preset-category-title', text: 'Colors' }), createEl('button', { className: 'add-preset-btn', text: '+' }));
+    this.elements.colorsPresetsWrapper.append(colorsHeader, createEl('div', { className: 'preset-items-container' }));
 
-        this.elements.hslInputsContainer = createEl('div', { id: 'hsl-inputs-container', className: 'hidden' });
-        this.elements.hslInputsContainer.append(createEl('h3', { className: 'input-label text-center mb-1', text: 'HSL (0-1)' }));
-        const hslGrid = createEl('div', { className: 'hsl-inputs-grid' });
-        hslGrid.append(
-            createEl('input', { type: 'text', id: 'hsl-h-input', placeholder: 'H', className: 'value-input' }),
-            createEl('input', { type: 'text', id: 'hsl-s-input', placeholder: 'S', className: 'value-input' }),
-            createEl('input', { type: 'text', id: 'hsl-l-input', placeholder: 'L', className: 'value-input' })
-        );
-        this.elements.hslInputsContainer.append(hslGrid);
-        
-        colorReadoutContainer.append(this.elements.rgbInputsContainer, this.elements.hslInputsContainer);
-        inputsWrapper.append(lightnessAlphaGrid, colorReadoutContainer);
-        selectedColorPane.append(scHeader, inputsWrapper);
+    const colormapsHeader = createEl('div', { className: 'preset-category-header' });
+    colormapsHeader.append(createEl('span', { className: 'preset-category-title', text: 'Colormaps' }), createEl('button', { className: 'add-preset-btn', text: '+' }));
+    this.elements.colormapsPresetsWrapper.append(colormapsHeader, createEl('div', { className: 'preset-items-container' }));
 
-        // --- Build Colormap Preview Panel ---
-        const cmHeader = createEl('h3', { className: 'section-title', text: 'Current Colormap' });
-        const cmPreviewContainer = createEl('div', { className: 'preview-container' });
-        this.elements.colormapPreviewCanvas = createEl('canvas', { id: 'colormap-preview-canvas' });
-        cmPreviewContainer.append(this.elements.colormapPreviewCanvas);
-        this.elements.selectButton = createEl('button', { id: 'select-button', className: 'select-button mt-auto', text: 'Select' });
-        colormapPreviewPane.append(cmHeader, cmPreviewContainer, this.elements.selectButton);
+    const scTitle = createEl('h3', { className: 'section-title', text: 'Selected Color' });
+    const scPreviewContainer = createEl('div', { className: 'preview-container' });
+    scPreviewContainer.append(createEl('canvas', { id: 'selected-color-preview-canvas' }));
+    const inputsWrapper = createEl('div', { className: 'space-y-2' });
+    const lightnessAlphaGrid = createEl('div', { className: 'grid grid-cols-2 gap-2' });
+    const lightnessGroup = createEl('div');
+    lightnessGroup.append(createEl('h3', { className: 'input-label', text: 'Lightness' }), createEl('input', { type: 'text', id: 'lightness-input', className: 'value-input' }));
+    const alphaGroup = createEl('div');
+    alphaGroup.append(createEl('h3', { className: 'input-label', text: 'Alpha' }), createEl('input', { type: 'text', id: 'alpha-input', className: 'value-input' }));
+    lightnessAlphaGrid.append(lightnessGroup, alphaGroup);
+    const colorReadoutContainer = createEl('div', { id: 'color-readout-container' });
+    this.elements.rgbInputsContainer = createEl('div', { id: 'rgb-inputs-container' });
+    this.elements.rgbInputsContainer.append(createEl('h3', { className: 'input-label text-center mb-1', text: 'RGB (0-255)' }), createEl('div', { className: 'rgb-inputs-grid' }));
+    this.elements.rgbInputsContainer.querySelector('.rgb-inputs-grid').append(createEl('input', { type: 'text', id: 'rgb-r-input', placeholder: 'R', className: 'value-input' }), createEl('input', { type: 'text', id: 'rgb-g-input', placeholder: 'G', className: 'value-input' }), createEl('input', { type: 'text', id: 'rgb-b-input', placeholder: 'B', className: 'value-input' }));
+    this.elements.hslInputsContainer = createEl('div', { id: 'hsl-inputs-container', className: 'hidden' });
+    this.elements.hslInputsContainer.append(createEl('h3', { className: 'input-label text-center mb-1', text: 'HSL (0-1)' }), createEl('div', { className: 'hsl-inputs-grid' }));
+    this.elements.hslInputsContainer.querySelector('.hsl-inputs-grid').append(createEl('input', { type: 'text', id: 'hsl-h-input', placeholder: 'H', className: 'value-input' }), createEl('input', { type: 'text', id: 'hsl-s-input', placeholder: 'S', className: 'value-input' }), createEl('input', { type: 'text', id: 'hsl-l-input', placeholder: 'L', className: 'value-input' }));
+    colorReadoutContainer.append(this.elements.rgbInputsContainer, this.elements.hslInputsContainer);
+    inputsWrapper.append(lightnessAlphaGrid, colorReadoutContainer);
+    selectedColorPane.append(scTitle, scPreviewContainer, inputsWrapper);
+    
+    const cmHeader = createEl('h3', { className: 'section-title text-center', text: 'Current Colormap' });
+    const cmPreviewContainer = createEl('div', { className: 'preview-container' });
+    cmPreviewContainer.append(createEl('canvas', { id: 'colormap-preview-canvas' }));
+    this.elements.selectButton = createEl('button', { id: 'select-button', className: 'select-button mt-auto', text: 'Select' });
+    colormapPreviewPane.append(cmHeader, cmPreviewContainer, this.elements.selectButton);
 
-        // --- Build Modal & Context Menu ---
-        this.elements.modalOverlay = createEl('div', { id: 'modal-overlay', className: 'modal-overlay hidden' });
-        const modalDialog = createEl('div', { id: 'modal-dialog', className: 'modal-dialog' });
-        this.elements.modalTitle = createEl('h3', { id: 'modal-title', className: 'modal-title' });
-        this.elements.modalInputContainer = createEl('div', { id: 'modal-input-container', className: 'hidden' });
-        this.elements.modalInput = createEl('input', { type: 'text', id: 'modal-input', className: 'modal-input' });
-        this.elements.modalButtons = createEl('div', { id: 'modal-buttons', className: 'modal-buttons' });
-        this.elements.modalInputContainer.append(this.elements.modalInput);
-        modalDialog.append(this.elements.modalTitle, this.elements.modalInputContainer, this.elements.modalButtons);
-        this.elements.modalOverlay.append(modalDialog);
-        this.elements.contextMenu = createEl('div', { id: 'context-menu', className: 'context-menu hidden' });
+    this.elements.modalOverlay = createEl('div', { id: 'modal-overlay', className: 'modal-overlay hidden' });
+    const modalDialog = createEl('div', { id: 'modal-dialog', className: 'modal-dialog' });
+    modalDialog.append(createEl('h3', { id: 'modal-title', className: 'modal-title' }), createEl('div', { id: 'modal-input-container', className: 'hidden' }), createEl('div', { id: 'modal-buttons', className: 'modal-buttons' }));
+    modalDialog.querySelector('#modal-input-container').append(createEl('input', { type: 'text', id: 'modal-input', className: 'modal-input' }));
+    this.elements.modalOverlay.append(modalDialog);
+    this.elements.contextMenu = createEl('div', { id: 'context-menu', className: 'context-menu hidden' });
 
-        // --- Assemble Main Wrapper ---
-        this.wrapper.append(
-            hsPane, lightnessPane, this.elements.colorsPresetsWrapper, selectedColorPane,
-            alphaPane, this.elements.colormapsPresetsWrapper, colormapPreviewPane,
-            this.elements.modalOverlay, this.elements.contextMenu
-        );
+    this.wrapper.append(hsPane, lightnessPane, this.elements.colorsPresetsWrapper, selectedColorPane, alphaPane, this.elements.colormapsPresetsWrapper, colormapPreviewPane, this.elements.modalOverlay, this.elements.contextMenu);
 
-        // --- Create overlay canvases ---
-        this.createInteractiveCanvas(this.elements.hsNodesContainer, 'hs');
-        this.createInteractiveCanvas(this.elements.lightnessNodesContainer, 'lightness');
-        this.createInteractiveCanvas(this.elements.alphaNodesContainer, 'alpha');
-    }
+    // Create interactive canvases for all three areas
+    this.createInteractiveCanvas(hsNodesContainer, 'hs');
+    this.createInteractiveCanvas(lightnessNodesContainer, 'lightness');
+    this.createInteractiveCanvas(alphaNodesContainer, 'alpha');
+}
 
     show() {
         if (!this.wrapper) return;
         this.wrapper.style.display = 'grid';
         
-        // Use requestAnimationFrame to ensure the browser has calculated the component's
-        // dimensions before we try to draw on the canvases.
         requestAnimationFrame(() => {
             this.setupCanvases();
-            this.drawAll(); // Ensure everything is drawn after canvas setup
+            this.drawAll();
         });
     }
+
 
 
 
@@ -795,50 +756,51 @@ export default class ColormapSelector {
             }
         }
     
-        setupCanvases() {
-            const lightnessInteractiveCanvas = this.elements.interactiveCanvases['lightness'];
-            const alphaInteractiveCanvas = this.elements.interactiveCanvases['alpha'];
-    
-            const otherCanvases = [
-                { c: this.elements.lightnessBgCanvas, container: this.elements.lightnessBgCanvas.parentElement },
-                { c: lightnessInteractiveCanvas, container: lightnessInteractiveCanvas.parentElement },
-                { c: this.elements.alphaBgCanvas, container: this.elements.alphaBgCanvas.parentElement },
-                { c: alphaInteractiveCanvas, container: alphaInteractiveCanvas.parentElement },
-                { c: this.elements.colormapPreviewCanvas, container: this.elements.colormapPreviewCanvas.parentElement },
-                { c: this.elements.selectedColorPreviewCanvas, container: this.elements.selectedColorPreviewCanvas.parentElement }
-            ];
-    
-            otherCanvases.forEach(item => {
-                if (!item.c || !item.container) return;
-                const { clientWidth, clientHeight } = item.container;
-                if (item.c.width !== clientWidth || item.c.height !== clientHeight) {
-                    item.c.width = clientWidth;
-                    item.c.height = clientHeight;
-                }
-            });
-    
-            const hsBgCanvas = this.elements.hsBgCanvas;
-            const hsInteractiveCanvas = this.elements.interactiveCanvases['hs'];
-            const hsContainer = hsBgCanvas.parentElement;
-    
-            const containerWidth = hsContainer.clientWidth;
-            const containerHeight = hsContainer.clientHeight;
-    
-            let size = Math.min(containerWidth, containerHeight);
-            size = Math.floor(size / C.CHECKERBOARD_SIZE) * C.CHECKERBOARD_SIZE;
-    
-            [hsBgCanvas, hsInteractiveCanvas].forEach(canvas => {
-                if (!canvas) return;
-                canvas.width = size;
-                canvas.height = size;
-                canvas.style.width = `${size}px`;
-                canvas.style.height = `${size}px`;
-                canvas.style.left = `${(containerWidth - size) / 2}px`;
-                canvas.style.top = `${(containerHeight - size) / 2}px`;
-            });
-    
-            this.drawAll();
+        // Replace the setupCanvases method in your ColormapSelector class with this fixed version:
+
+setupCanvases() {
+    const lightnessInteractiveCanvas = this.elements.interactiveCanvases['lightness'];
+    const alphaInteractiveCanvas = this.elements.interactiveCanvases['alpha'];
+
+    const otherCanvases = [
+        { c: this.elements.lightnessBgCanvas, container: this.elements.lightnessBgCanvas.parentElement },
+        { c: lightnessInteractiveCanvas, container: lightnessInteractiveCanvas.parentElement },
+        { c: this.elements.alphaBgCanvas, container: this.elements.alphaBgCanvas.parentElement },
+        { c: alphaInteractiveCanvas, container: alphaInteractiveCanvas.parentElement },
+        { c: this.elements.colormapPreviewCanvas, container: this.elements.colormapPreviewCanvas.parentElement },
+        { c: this.elements.selectedColorPreviewCanvas, container: this.elements.selectedColorPreviewCanvas.parentElement }
+    ];
+
+    otherCanvases.forEach(item => {
+        if (!item.c || !item.container) return;
+        const { clientWidth, clientHeight } = item.container;
+        if (item.c.width !== clientWidth || item.c.height !== clientHeight) {
+            item.c.width = clientWidth;
+            item.c.height = clientHeight;
         }
+    });
+
+    // HS Canvas - Make it fill the entire container like other canvases
+    const hsBgCanvas = this.elements.hsBgCanvas;
+    const hsInteractiveCanvas = this.elements.interactiveCanvases['hs'];
+    const hsContainer = hsBgCanvas.parentElement;
+
+    const containerWidth = hsContainer.clientWidth;
+    const containerHeight = hsContainer.clientHeight;
+
+    // Set HS canvases to fill the entire container (no square constraint)
+    [hsBgCanvas, hsInteractiveCanvas].forEach(canvas => {
+        if (!canvas) return;
+        canvas.width = containerWidth;
+        canvas.height = containerHeight;
+        canvas.style.width = `${containerWidth}px`;
+        canvas.style.height = `${containerHeight}px`;
+        canvas.style.left = '0px';
+        canvas.style.top = '0px';
+    });
+
+    this.drawAll();
+}
     
         setColorSpace(newSpace) {
             const oldSpace = this.state.colorSpace;

@@ -1,4 +1,4 @@
-{
+export default {
     "rgb": {
         "points": [
             { "pos": 0.0, "color": "red", "order": 1 },
@@ -23,4 +23,4 @@
             { "pos": 1.0, "color": [253, 231, 37], "order": 1 }
         ]
     }
-}
+};

@@ -109,8 +109,22 @@ export default class ColormapSelector {
 
         // Main Wrapper
         this.wrapper = createEl('div', { id: 'colormap-selector-wrapper', className: 'color-editor-layout' });
-        // This CSS positions the component in the lower-right quadrant
-        this.wrapper.style.cssText = 'position: fixed; display: none; z-index: 1000; background-color: #1a202c; padding: 0.5rem; border-radius: 0.5rem; box-shadow: 0 10px 25px rgba(0,0,0,0.3); width: 50vw; height: 50vh; right: 0; bottom: 0;';
+        // Updated CSS positioning and sizing
+        this.wrapper.style.cssText = `
+            position: fixed; 
+            display: none; 
+            z-index: 1000; 
+            background-color: #1a202c; 
+            padding: 0.5rem; 
+            border-radius: 0.5rem; 
+            box-shadow: 0 10px 25px rgba(0,0,0,0.3); 
+            width: 50vw; 
+            height: 50vh; 
+            right: 0; 
+            bottom: 0;
+            min-height: 400px;
+            min-width: 600px;
+        `;
 
         // --- Create all panels and containers, replicating the original HTML structure ---
         const hsPane = createEl('div', { id: 'hs-pane-wrapper', className: 'flex flex-col h-full min-w-0' });
@@ -166,7 +180,7 @@ export default class ColormapSelector {
         const colorReadoutContainer = createEl('div', { id: 'color-readout-container' });
         this.elements.rgbInputsContainer = createEl('div', { id: 'rgb-inputs-container' });
         this.elements.rgbInputsContainer.append(createEl('h3', { className: 'input-label text-center mb-1', text: 'RGB (0-255)' }));
-        const rgbGrid = createEl('div', { className: 'grid grid-cols-3 gap-1' });
+        const rgbGrid = createEl('div', { className: 'rgb-inputs-grid' });
         rgbGrid.append(
             createEl('input', { type: 'text', id: 'rgb-r-input', placeholder: 'R', className: 'value-input' }),
             createEl('input', { type: 'text', id: 'rgb-g-input', placeholder: 'G', className: 'value-input' }),
@@ -176,7 +190,7 @@ export default class ColormapSelector {
 
         this.elements.hslInputsContainer = createEl('div', { id: 'hsl-inputs-container', className: 'hidden' });
         this.elements.hslInputsContainer.append(createEl('h3', { className: 'input-label text-center mb-1', text: 'HSL (0-1)' }));
-        const hslGrid = createEl('div', { className: 'grid grid-cols-3 gap-1' });
+        const hslGrid = createEl('div', { className: 'hsl-inputs-grid' });
         hslGrid.append(
             createEl('input', { type: 'text', id: 'hsl-h-input', placeholder: 'H', className: 'value-input' }),
             createEl('input', { type: 'text', id: 'hsl-s-input', placeholder: 'S', className: 'value-input' }),
@@ -229,6 +243,7 @@ export default class ColormapSelector {
         // dimensions before we try to draw on the canvases.
         requestAnimationFrame(() => {
             this.setupCanvases();
+            this.drawAll(); // Ensure everything is drawn after canvas setup
         });
     }
 
@@ -2483,18 +2498,56 @@ body {
     display: grid;
     grid-template-columns: repeat(6, 1fr);
     grid-template-rows: 1fr 1fr;
-    gap: 0.5rem;
+    gap: 0.375rem;
+    height: 100%;
+    width: 100%;
+    box-sizing: border-box;
 }
 
 /* --- Grid Item Placement --- */
-#hs-pane-wrapper { grid-column: 1 / span 2; grid-row: 1 / span 2; }
-#lightness-wrapper { grid-column: 3 / span 2; grid-row: 1 / span 1; }
-#alpha-wrapper { grid-column: 3 / span 2; grid-row: 2 / span 1; }
-#colors-presets-wrapper { grid-column: 5 / span 1; grid-row: 1 / span 1; }
-#colormaps-presets-wrapper { grid-column: 5 / span 1; grid-row: 2 / span 1; }
-#selected-color-section { grid-column: 6 / span 1; grid-row: 1 / span 1; }
-#current-colormap-section { grid-column: 6 / span 1; grid-row: 2 / span 1; }
+#hs-pane-wrapper { 
+    grid-column: 1 / span 2; 
+    grid-row: 1 / span 2;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
 
+#lightness-wrapper { 
+    grid-column: 3 / span 2; 
+    grid-row: 1 / span 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+#alpha-wrapper { 
+    grid-column: 3 / span 2; 
+    grid-row: 2 / span 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+#colors-presets-wrapper { 
+    grid-column: 5 / span 1; 
+    grid-row: 1 / span 1;
+}
+
+#colormaps-presets-wrapper { 
+    grid-column: 5 / span 1; 
+    grid-row: 2 / span 1;
+}
+
+#selected-color-section { 
+    grid-column: 6 / span 1; 
+    grid-row: 1 / span 1;
+}
+
+#current-colormap-section { 
+    grid-column: 6 / span 1; 
+    grid-row: 2 / span 1;
+}
 
 /* --- Panel Header Alignment --- */
 .panel-header {
@@ -2502,48 +2555,50 @@ body {
     justify-content: center;
     align-items: center;
     flex-shrink: 0;
-    height: 36px; /* Fixed height for alignment */
-    font-size: 0.75rem;
+    height: 28px; /* Reduced height for better fit */
+    font-size: 0.7rem;
     font-weight: 600;
     color: #a0aec0;
     text-transform: uppercase;
     text-align: center;
 }
 
-
 /* --- Control & Preset Sections --- */
 .control-section {
     background-color: rgba(45, 55, 72, 0.5);
-    border-radius: 0.5rem;
-    padding: 0.5rem;
+    border-radius: 0.375rem;
+    padding: 0.375rem;
     display: flex;
     flex-direction: column;
+    min-height: 0;
+    font-size: 0.75rem;
 }
 
 .section-header {
     display: flex;
     align-items: center;
-    gap: 0.75rem;
+    gap: 0.5rem;
     justify-content: center;
     margin-bottom: 0.25rem;
+    flex-shrink: 0;
 }
 
 .section-title {
-    font-size: 0.75rem;
+    font-size: 0.65rem;
     font-weight: 600;
     color: #a0aec0;
     text-transform: uppercase;
+    line-height: 1;
 }
 
 #current-colormap-section > .section-title {
     text-align: center;
 }
 
-
 .preview-container {
     width: 100%;
-    height: 2.5rem;
-    border-radius: 0.375rem;
+    height: 1.75rem;
+    border-radius: 0.25rem;
     border: 1px solid #4a5568;
     position: relative;
     flex-shrink: 0;
@@ -2551,18 +2606,17 @@ body {
 }
 
 .preview-container.swatch-preview {
-    width: 1.5rem;
-    height: 1.5rem;
-    border-radius: 50%; /* Make the swatch circular */
+    width: 1.25rem;
+    height: 1.25rem;
+    border-radius: 50%;
 }
-
 
 /* --- Preset Panel Styling --- */
 .preset-wrapper {
     display: flex;
     flex-direction: column;
     background-color: rgba(45, 55, 72, 0.5);
-    border-radius: 0.5rem;
+    border-radius: 0.375rem;
     padding: 0.25rem;
     overflow: hidden;
     min-height: 0;
@@ -2575,21 +2629,21 @@ body {
     scrollbar-color: #4a5568 #2d3748;
 }
 
-.preset-items-container::-webkit-scrollbar { width: 8px; }
-.preset-items-container::-webkit-scrollbar-track { background: #2d3748; border-radius: 4px; }
-.preset-items-container::-webkit-scrollbar-thumb { background-color: #4a5568; border-radius: 4px; border: 2px solid #2d3748; }
+.preset-items-container::-webkit-scrollbar { width: 6px; }
+.preset-items-container::-webkit-scrollbar-track { background: #2d3748; border-radius: 3px; }
+.preset-items-container::-webkit-scrollbar-thumb { background-color: #4a5568; border-radius: 3px; border: 1px solid #2d3748; }
 
 .preset-category-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 4px 8px;
+    padding: 3px 6px;
     background-color: rgba(45, 55, 72, 0.5);
     flex-shrink: 0;
 }
 
 .preset-category-title {
-    font-size: 11px;
+    font-size: 0.6rem;
     font-weight: 600;
     color: #a0aec0;
     text-transform: uppercase;
@@ -2597,85 +2651,129 @@ body {
 
 .add-preset-btn {
     background: none; border: none; color: #a0aec0;
-    font-size: 16px; font-weight: bold; cursor: pointer; padding: 0 4px;
+    font-size: 14px; font-weight: bold; cursor: pointer; padding: 0 3px;
 }
 .add-preset-btn:hover { color: #ffffff; }
 
 .preset-item {
-    display: flex; align-items: center; gap: 8px; font-size: 12px;
-    padding: 4px 8px; cursor: pointer; border-radius: 4px;
+    display: flex; 
+    align-items: center; 
+    gap: 6px; 
+    font-size: 0.65rem;
+    padding: 3px 6px; 
+    cursor: pointer; 
+    border-radius: 3px;
     transition: background-color 0.15s ease-in-out;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap; 
+    overflow: hidden; 
+    text-overflow: ellipsis;
+    line-height: 1.2;
 }
 .preset-item:hover { background-color: #4a5568; }
 
 .preset-icon {
-    width: 16px; height: 16px; border: 1px solid rgba(0,0,0,0.2);
-    border-radius: 3px; flex-shrink: 0; position: static;
+    width: 14px; 
+    height: 14px; 
+    border: 1px solid rgba(0,0,0,0.2);
+    border-radius: 2px; 
+    flex-shrink: 0; 
+    position: static;
 }
 
-/* --- FIX: Make colormap preset icons wider --- */
+/* --- Colormap preset icons wider --- */
 #colormaps-presets-wrapper .preset-icon {
-    width: 64px;
+    width: 48px;
+    height: 12px;
 }
-
 
 /* --- Input Field Styling --- */
 .input-label {
-    font-size: 0.75rem;
+    font-size: 0.65rem;
     font-weight: 500;
     color: #a0aec0;
     text-align: center;
+    line-height: 1.2;
+    margin-bottom: 0.125rem;
 }
 
 .value-input {
     font-family: 'Inter', sans-serif;
-    font-size: 0.875rem;
+    font-size: 0.75rem;
     background-color: #4a5568;
     color: #e2e8f0;
     text-align: center;
-    border-radius: 0.375rem;
+    border-radius: 0.25rem;
     width: 100%;
-    padding: 0.25rem;
+    padding: 0.2rem;
     border: 1px solid #718096;
+    height: 1.5rem;
+    box-sizing: border-box;
 }
 
 .value-input:focus {
     outline: none;
     border-color: #3b82f6;
-    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.5);
+    box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.5);
 }
 
 .value-input::placeholder { color: #a0aec0; }
 
+/* --- RGB and HSL Input Grids --- */
+.rgb-inputs-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 0.2rem;
+}
+
+.hsl-inputs-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 0.2rem;
+}
 
 /* --- Canvas & UI Elements --- */
 .canvas-container {
     position: relative;
     cursor: grab;
     width: 100%;
-    height: 100%;
+    flex: 1;
+    min-height: 0;
 }
+
 #hs-canvas-container { cursor: crosshair; }
 
 .canvas-container > canvas {
-    position: absolute; top: 0; left: 0;
-    width: 100%; height: 100%;
-    display: block; border-radius: 0.375rem;
+    position: absolute; 
+    top: 0; 
+    left: 0;
+    width: 100%; 
+    height: 100%;
+    display: block; 
+    border-radius: 0.25rem;
 }
 
 .interactive-canvas {
-    position: absolute; top: 0; left: 0;
-    width: 100%; height: 100%;
-    pointer-events: auto; z-index: 10;
+    position: absolute; 
+    top: 0; 
+    left: 0;
+    width: 100%; 
+    height: 100%;
+    pointer-events: auto; 
+    z-index: 10;
 }
 .hs-interactive { cursor: crosshair; }
 .lightness-interactive, .alpha-interactive { cursor: ns-resize; }
 
 .tab-button {
-    padding: 2px 8px; border-radius: 6px; border: 1px solid transparent;
-    font-size: 12px; font-weight: 500; color: #a0aec0;
-    background-color: transparent; cursor: pointer; transition: all 0.2s ease-in-out;
+    padding: 2px 6px; 
+    border-radius: 4px; 
+    border: 1px solid transparent;
+    font-size: 0.65rem; 
+    font-weight: 500; 
+    color: #a0aec0;
+    background-color: transparent; 
+    cursor: pointer; 
+    transition: all 0.2s ease-in-out;
 }
 .tab-button.active { color: #ffffff; background-color: #3b82f6; }
 .tab-button:hover:not(.active) { background-color: #4a5568; }
@@ -2683,14 +2781,41 @@ body {
 .hidden { display: none !important; }
 
 .select-button {
-    width: 100%; padding: 8px; font-size: 14px; font-weight: 500;
-    color: #ffffff; background-color: #3b82f6;
-    border: none; border-radius: 6px; cursor: pointer;
+    width: 100%; 
+    padding: 6px; 
+    font-size: 0.75rem; 
+    font-weight: 500;
+    color: #ffffff; 
+    background-color: #3b82f6;
+    border: none; 
+    border-radius: 4px; 
+    cursor: pointer;
     transition: background-color 0.2s ease-in-out;
+    margin-top: auto;
+    height: 2rem;
+    flex-shrink: 0;
 }
 .select-button:hover { background-color: #2563eb; }
 
-/* --- Modal and Context Menu Styles (Unchanged) --- */
+/* --- Utility Classes --- */
+.space-y-2 > * + * { margin-top: 0.375rem; }
+.mt-2 { margin-top: 0.375rem; }
+.mb-1 { margin-bottom: 0.125rem; }
+.text-center { text-align: center; }
+.grid { display: grid; }
+.grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.gap-2 { gap: 0.375rem; }
+.flex { display: flex; }
+.flex-col { flex-direction: column; }
+.h-full { height: 100%; }
+.w-full { width: 100%; }
+.min-w-0 { min-width: 0; }
+.min-h-0 { min-height: 0; }
+.absolute { position: absolute; }
+.top-0 { top: 0; }
+.left-0 { left: 0; }
+
+/* --- Modal and Context Menu Styles --- */
 .modal-overlay {
     position: fixed; top: 0; left: 0; width: 100%; height: 100%;
     background-color: rgba(0, 0, 0, 0.6); display: flex;
