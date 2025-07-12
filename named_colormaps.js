@@ -22,5 +22,28 @@ export default {
             { "pos": 0.5, "color": [33, 145, 140], "order": 1 },
             { "pos": 1.0, "color": [253, 231, 37], "order": 1 }
         ]
+    },
+    "plasma": {
+        "points": [
+            { "pos": 0.0, "color": [13, 8, 135], "order": 1 },
+            { "pos": 0.25, "color": [126, 3, 168], "order": 1 },
+            { "pos": 0.5, "color": [203, 70, 121], "order": 1 },
+            { "pos": 0.75, "color": [248, 149, 64], "order": 1 },
+            { "pos": 1.0, "color": [240, 249, 33], "order": 1 }
+        ]
+    },
+    "grayscale": {
+        "points": [
+            { "pos": 0.0, "color": [0, 0, 0], "order": 1 },
+            { "pos": 1.0, "color": [255, 255, 255], "order": 1 }
+        ]
+    },
+    "hot": {
+        "points": [
+            { "pos": 0.0, "color": [0, 0, 0], "order": 1 },
+            { "pos": 0.33, "color": [255, 0, 0], "order": 1 },
+            { "pos": 0.67, "color": [255, 255, 0], "order": 1 },
+            { "pos": 1.0, "color": [255, 255, 255], "order": 1 }
+        ]
     }
 };

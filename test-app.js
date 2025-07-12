@@ -14,20 +14,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 
     colorEditor.getElement().addEventListener('select', (e) => {
-        const colormapPoints = e.detail.colormap.points;
+        const colormapPoints = e.detail.points;
         console.log('Colormap selected:', colormapPoints);
         
-        saveUserData(e.detail.customColors, e.detail.customColormaps);
-        colorEditor.hide();
-        
+        // Draw the colormap but don't close the editor
         drawColormapOnCanvas(colormapPoints, displayCanvas);
+        
+        // Still save user data when selecting
+        saveUserData(colorEditor.customColors, colorEditor.customColormaps);
     });
 
-    colorEditor.getElement().addEventListener('close', (e) => {
-        saveUserData(e.detail.customColors, e.detail.customColormaps);
-        colorEditor.hide();
-    });
-
+    // Add separate event listener for when editor is closed
     colorEditor.getElement().addEventListener('dataChanged', (e) => {
         saveUserData(e.detail.customColors, e.detail.customColormaps);
     });
@@ -55,6 +52,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     function drawColormapOnCanvas(points, canvas) {
         const ctx = canvas.getContext('2d');
         const { width, height } = canvas;
+        
+        // Clear canvas first
+        ctx.clearRect(0, 0, width, height);
+        
+        if (points.length === 0) return;
+        
         const gradient = ctx.createLinearGradient(0, 0, width, 0);
 
         points.forEach(point => {
