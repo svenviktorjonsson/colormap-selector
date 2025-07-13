@@ -1197,17 +1197,33 @@ setupCanvases() {
   this.drawAll();
 }
 
-findHitPointHS(x, y) {
-    for (const point of this.state.points) {
-        const px = point.hsPos.u * this.state.transform.scale + this.state.transform.offsetX;
-        const py = point.hsPos.v * this.state.transform.scale + this.state.transform.offsetY;
-        const distance = Math.sqrt((x - px) ** 2 + (y - py) ** 2);
-        if (distance <= C.NODE_HIT_RADIUS) {
-            return point;
+    findHitPointHS(x, y) {
+        const glyphMargin = Math.ceil(C.NODE_RADIUS * 2.2);
+        const tickMargin = Math.ceil(C.CHECKERBOARD_SIZE / 2);
+        const totalMargin = glyphMargin + tickMargin;
+        
+        const clipX = totalMargin;
+        const clipY = totalMargin;
+        const clipWidth = this.elements.hsBgCanvas.width - totalMargin - glyphMargin;
+        const clipHeight = this.elements.hsBgCanvas.height - totalMargin - glyphMargin;
+        
+        // Only check points that are within the valid drawing area
+        for (const point of this.state.points) {
+            const px = point.hsPos.u * this.state.transform.scale + this.state.transform.offsetX;
+            const py = point.hsPos.v * this.state.transform.scale + this.state.transform.offsetY;
+            
+            // Only consider points within the clipped area (with some tolerance for edge points)
+            if (px >= clipX - C.NODE_RADIUS && px <= clipX + clipWidth + C.NODE_RADIUS &&
+                py >= clipY - C.NODE_RADIUS && py <= clipY + clipHeight + C.NODE_RADIUS) {
+                
+                const distance = Math.sqrt((x - px) ** 2 + (y - py) ** 2);
+                if (distance <= C.NODE_HIT_RADIUS) {
+                    return point;
+                }
+            }
         }
+        return null;
     }
-    return null;
-}
 
         handleInputChange(e, type) {
     const value = e.target.value;
@@ -2823,57 +2839,30 @@ createKaTeXLabel(expression, x, y, position, canvas) {
             return color;
         }
     
-        clampAbstractPoint(u, v, lightness) {
-    if (this.state.colorSpace === 'HSL_DI_CONE') {
-        const radius = Math.sqrt(u * u + v * v);
-        const radiusAtL = 1 - Math.abs(2 * lightness - 1);
-        if (radius > radiusAtL && radiusAtL > 1e-6) {
-            return { u: u / radius * radiusAtL, v: v / radius * radiusAtL };
-        }
-        return { u, v };
-    }
+    clampAbstractPoint(u, v, lightness) {
+       if (this.state.colorSpace === 'HSL_DI_CONE') {
+           const radius = Math.sqrt(u * u + v * v);
+           const radiusAtL = 1 - Math.abs(2 * lightness - 1);
+           if (radius > radiusAtL && radiusAtL > 1e-6) {
+               return { u: u / radius * radiusAtL, v: v / radius * radiusAtL };
+           }
+           return { u, v };
+       }
 
-    // RGB Cube clamping with smoother boundary following
-    let { r, g, b } = this.abstractToRgb(u, v, lightness);
-    if (this.isValidColor(r, g, b)) {
-        return { u, v };
-    }
+       let { r, g, b } = this.abstractToRgb(u, v, lightness);
+       if (this.isValidColor(r, g, b)) {
+           return { u, v };
+       }
 
-    // Use a more precise binary search for RGB cube boundaries
-    let low = 0.0;
-    let high = 1.0;
-    const iterations = 15; // Increased precision
-    const centerU = 0;
-    const centerV = 0;
-    const directionU = u - centerU;
-    const directionV = v - centerV;
-    const directionLength = Math.sqrt(directionU * directionU + directionV * directionV);
-    
-    if (directionLength < 1e-9) {
-        return { u: 0, v: 0 };
-    }
-    
-    const normalizedDirU = directionU / directionLength;
-    const normalizedDirV = directionV / directionLength;
-
-    for (let i = 0; i < iterations; i++) {
-        const mid = (low + high) / 2;
-        const testU = centerU + normalizedDirU * mid * directionLength;
-        const testV = centerV + normalizedDirV * mid * directionLength;
-        const testColor = this.abstractToRgb(testU, testV, lightness);
-        
-        if (this.isValidColor(testColor.r, testColor.g, testColor.b)) {
-            low = mid;
-        } else {
-            high = mid;
-        }
-    }
-    
-    const finalU = centerU + normalizedDirU * low * directionLength;
-    const finalV = centerV + normalizedDirV * low * directionLength;
-    
-    return { u: finalU, v: finalV };
-}
+       const dummyScale = 100;
+       const dummyOffset = 0;
+       const result = this.findClosestPointOnRgbGamut(u, v, lightness, dummyScale, dummyOffset, dummyOffset, -1000, -1000, 2000, 2000);
+       
+       const finalU = (result.x - dummyOffset) / dummyScale;
+       const finalV = (result.y - dummyOffset) / dummyScale;
+       
+       return { u: finalU, v: finalV };
+   }
     
         hslToRgb(h, s, l) {
             if (s === 0) {
@@ -2931,77 +2920,45 @@ createKaTeXLabel(expression, x, y, position, canvas) {
             }
         }
     
-        findClosestValidPoint(targetX, targetY, lightness) {
-    if (this.state.colorSpace === 'HSL_DI_CONE') {
-        const { scale, offsetX, offsetY } = this.state.transform;
-        const u = (targetX - offsetX) / scale;
-        const v = (targetY - offsetY) / scale;
-        const radius = Math.sqrt(u * u + v * v);
+    findClosestValidPoint(targetX, targetY, lightness) {
+       const glyphMargin = Math.ceil(C.NODE_RADIUS * 2.2);
+       const tickMargin = Math.ceil(C.CHECKERBOARD_SIZE / 2);
+       const totalMargin = glyphMargin + tickMargin;
+       
+       const clipX = totalMargin;
+       const clipY = totalMargin;
+       const clipWidth = this.elements.hsBgCanvas.width - totalMargin - glyphMargin;
+       const clipHeight = this.elements.hsBgCanvas.height - totalMargin - glyphMargin;
+       
+       const clampedTargetX = Math.max(clipX, Math.min(clipX + clipWidth, targetX));
+       const clampedTargetY = Math.max(clipY, Math.min(clipY + clipHeight, targetY));
+       
+       const { scale, offsetX, offsetY } = this.state.transform;
+       const targetU = (clampedTargetX - offsetX) / scale;
+       const targetV = (clampedTargetY - offsetY) / scale;
+       
+       const targetColor = this.abstractToRgb(targetU, targetV, lightness);
+       if (this.isValidColor(targetColor.r, targetColor.g, targetColor.b)) {
+           return { x: clampedTargetX, y: clampedTargetY };
+       }
 
-        const radiusAtL = 1 - Math.abs(2 * lightness - 1);
+       if (this.state.colorSpace === 'HSL_DI_CONE') {
+           const radius = Math.sqrt(targetU * targetU + targetV * targetV);
+           const radiusAtL = 1 - Math.abs(2 * lightness - 1);
 
-        if (radius > radiusAtL && radiusAtL > 1e-6) {
-            const clampedU = u / radius * radiusAtL;
-            const clampedV = v / radius * radiusAtL;
-            return {
-                x: clampedU * scale + offsetX,
-                y: clampedV * scale + offsetY
-            };
-        }
-        return { x: targetX, y: targetY };
-    }
+           if (radius > radiusAtL && radiusAtL > 1e-6) {
+               const clampedU = targetU / radius * radiusAtL;
+               const clampedV = targetV / radius * radiusAtL;
+               return {
+                   x: clampedU * scale + offsetX,
+                   y: clampedV * scale + offsetY
+               };
+           }
+           return { x: clampedTargetX, y: clampedTargetY };
+       }
 
-    // RGB Cube handling
-    const { scale, offsetX, offsetY } = this.state.transform;
-    const u = (targetX - offsetX) / scale;
-    const v = (targetY - offsetY) / scale;
-    
-    // Check if the point is already valid
-    const { r, g, b } = this.abstractToRgb(u, v, lightness);
-    if (this.isValidColor(r, g, b)) {
-        return { x: targetX, y: targetY };
-    }
-
-    // Find the closest point on the gamut boundary using binary search
-    const centerU = 0;
-    const centerV = 0;
-    const directionU = u - centerU;
-    const directionV = v - centerV;
-    const directionLength = Math.sqrt(directionU * directionU + directionV * directionV);
-    
-    if (directionLength < 1e-6) {
-        return { x: offsetX, y: offsetY };
-    }
-    
-    const normalizedDirU = directionU / directionLength;
-    const normalizedDirV = directionV / directionLength;
-    
-    // Binary search for the boundary
-    let low = 0.0;
-    let high = directionLength;
-    const iterations = 20; // More iterations for smoother boundary following
-    
-    for (let i = 0; i < iterations; i++) {
-        const mid = (low + high) / 2;
-        const testU = centerU + normalizedDirU * mid;
-        const testV = centerV + normalizedDirV * mid;
-        const testColor = this.abstractToRgb(testU, testV, lightness);
-        
-        if (this.isValidColor(testColor.r, testColor.g, testColor.b)) {
-            low = mid;
-        } else {
-            high = mid;
-        }
-    }
-    
-    const finalU = centerU + normalizedDirU * low;
-    const finalV = centerV + normalizedDirV * low;
-    
-    return {
-        x: finalU * scale + offsetX,
-        y: finalV * scale + offsetY
-    };
-}
+       return this.findClosestPointOnRgbGamut(targetU, targetV, lightness, scale, offsetX, offsetY, clipX, clipY, clipWidth, clipHeight);
+   }
     
         getGamutVerticesRgb(B) {
             const vertices = [];
@@ -3034,6 +2991,82 @@ createKaTeXLabel(expression, x, y, position, canvas) {
             const b = lightness + u * basis1.z + v * basis2.z;
             return {r, g, b};
         }
+    
+        findClosestPointOnRgbGamut(targetU, targetV, lightness, scale, offsetX, offsetY, clipX, clipY, clipWidth, clipHeight) {
+       let closestU = targetU;
+       let closestV = targetV;
+       let minDistance = Infinity;
+       
+       const searchRadius = 0.5;
+       const gridSteps = 50;
+       
+       for (let i = 0; i <= gridSteps; i++) {
+           for (let j = 0; j <= gridSteps; j++) {
+               const testU = targetU + (i / gridSteps - 0.5) * 2 * searchRadius;
+               const testV = targetV + (j / gridSteps - 0.5) * 2 * searchRadius;
+               
+               const testColor = this.abstractToRgb(testU, testV, lightness);
+               if (this.isValidColor(testColor.r, testColor.g, testColor.b)) {
+                   const distance = Math.sqrt((testU - targetU) ** 2 + (testV - targetV) ** 2);
+                   if (distance < minDistance) {
+                       minDistance = distance;
+                       closestU = testU;
+                       closestV = testV;
+                   }
+               }
+           }
+       }
+       
+       if (minDistance < Infinity) {
+           const refinedResult = this.refineClosestPoint(targetU, targetV, closestU, closestV, lightness);
+           closestU = refinedResult.u;
+           closestV = refinedResult.v;
+       }
+       
+       const finalX = closestU * scale + offsetX;
+       const finalY = closestV * scale + offsetY;
+       
+       return {
+           x: Math.max(clipX, Math.min(clipX + clipWidth, finalX)),
+           y: Math.max(clipY, Math.min(clipY + clipHeight, finalY))
+       };
+   }
+
+   refineClosestPoint(targetU, targetV, initialU, initialV, lightness) {
+       let bestU = initialU;
+       let bestV = initialV;
+       let searchRadius = 0.02;
+       
+       for (let iteration = 0; iteration < 5; iteration++) {
+           let improved = false;
+           const steps = 20;
+           
+           for (let i = 0; i <= steps; i++) {
+               for (let j = 0; j <= steps; j++) {
+                   const testU = bestU + (i / steps - 0.5) * 2 * searchRadius;
+                   const testV = bestV + (j / steps - 0.5) * 2 * searchRadius;
+                   
+                   const testColor = this.abstractToRgb(testU, testV, lightness);
+                   if (this.isValidColor(testColor.r, testColor.g, testColor.b)) {
+                       const currentDistance = Math.sqrt((bestU - targetU) ** 2 + (bestV - targetV) ** 2);
+                       const testDistance = Math.sqrt((testU - targetU) ** 2 + (testV - targetV) ** 2);
+                       
+                       if (testDistance < currentDistance) {
+                           bestU = testU;
+                           bestV = testV;
+                           improved = true;
+                       }
+                   }
+               }
+           }
+           
+           searchRadius *= 0.5;
+           
+           if (!improved) break;
+       }
+       
+       return { u: bestU, v: bestV };
+   }
     
         findClosestPointOnPolygon(p, vertices) {
             let closestPoint = null;
@@ -3070,63 +3103,17 @@ createKaTeXLabel(expression, x, y, position, canvas) {
             return closestPoint;
         }
     
-        constrainPointToValidArea(point) {
-    // Always try the original position first
-    const originalColor = this.abstractToRgb(point.originalHsPos.u, point.originalHsPos.v, point.lightness);
-    if (this.isValidColor(originalColor.r, originalColor.g, originalColor.b)) {
-        point.hsPos = { ...point.originalHsPos };
-        return;
-    }
+    constrainPointToValidArea(point) {
+       const originalColor = this.abstractToRgb(point.originalHsPos.u, point.originalHsPos.v, point.lightness);
+       if (this.isValidColor(originalColor.r, originalColor.g, originalColor.b)) {
+           point.hsPos = { ...point.originalHsPos };
+           return;
+       }
 
-    if (this.state.colorSpace === 'HSL_DI_CONE') {
-        const radius = Math.sqrt(point.originalHsPos.u * point.originalHsPos.u + point.originalHsPos.v * point.originalHsPos.v);
-        const radiusAtL = 1 - Math.abs(2 * point.lightness - 1);
-        
-        if (radius > radiusAtL && radiusAtL > 1e-6) {
-            const scale = radiusAtL / radius;
-            point.hsPos.u = point.originalHsPos.u * scale;
-            point.hsPos.v = point.originalHsPos.v * scale;
-        } else {
-            point.hsPos = { ...point.originalHsPos };
-        }
-        return;
-    }
-
-    // RGB cube: find boundary point along original direction
-    const centerU = 0;
-    const centerV = 0;
-    const directionU = point.originalHsPos.u - centerU;
-    const directionV = point.originalHsPos.v - centerV;
-    const directionLength = Math.sqrt(directionU * directionU + directionV * directionV);
-    
-    if (directionLength < 1e-6) {
-        point.hsPos = { u: 0, v: 0 };
-        return;
-    }
-    
-    const normalizedDirU = directionU / directionLength;
-    const normalizedDirV = directionV / directionLength;
-    
-    let low = 0.0;
-    let high = directionLength;
-    const iterations = 20;
-    
-    for (let i = 0; i < iterations; i++) {
-        const mid = (low + high) / 2;
-        const testU = centerU + normalizedDirU * mid;
-        const testV = centerV + normalizedDirV * mid;
-        const testColor = this.abstractToRgb(testU, testV, point.lightness);
-        
-        if (this.isValidColor(testColor.r, testColor.g, testColor.b)) {
-            low = mid;
-        } else {
-            high = mid;
-        }
-    }
-    
-    point.hsPos.u = centerU + normalizedDirU * low;
-    point.hsPos.v = centerV + normalizedDirV * low;
-}
+       const clamped = this.clampAbstractPoint(point.originalHsPos.u, point.originalHsPos.v, point.lightness);
+       point.hsPos.u = clamped.u;
+       point.hsPos.v = clamped.v;
+   }
     
         findHitPointSlider(x, y, type) {
     const canvas = this.elements.interactiveCanvases[type];
@@ -3191,36 +3178,50 @@ createKaTeXLabel(expression, x, y, position, canvas) {
     return { hitPoint, hitLine };
 }
     
-        createNewPointHS(x, y) {
-            const au = (x - this.state.transform.offsetX) / this.state.transform.scale;
-            const av = (y - this.state.transform.offsetY) / this.state.transform.scale;
-            const { viewLightness, viewAlpha } = this.state;
-            const {r, g, b} = this.abstractToRgb(au, av, viewLightness);
-            if (this.isValidColor(r, g, b)) {
-                this.markAsDirty();
-                const n = this.state.points.length;
-                if (n > 0) {
-                    this.state.points.forEach(p => {
-                        p.pos = p.pos - (p.pos / n);
-                    });
-                }
-                const newPoint = {
-                    id: Date.now(),
-                    hsPos: {u: au, v: av},
-                    originalHsPos: {u: au, v: av},
-                    lightness: viewLightness,
-                    alpha: viewAlpha,
-                    pos: n === 0 ? 0.5 : 1.0,
-                    order: 1,
-                };
-                this.state.points.push(newPoint);
-                this.sortPoints();
-                this.state.selectedPointIds.clear();
-                this.state.selectedPointIds.add(newPoint.id);
-                this.state.lastSelectedPointId = newPoint.id;
-                this.drawAll();
-            }
+    createNewPointHS(x, y) {
+        const glyphMargin = Math.ceil(C.NODE_RADIUS * 2.2);
+        const tickMargin = Math.ceil(C.CHECKERBOARD_SIZE / 2);
+        const totalMargin = glyphMargin + tickMargin;
+        
+        const clipX = totalMargin;
+        const clipY = totalMargin;
+        const clipWidth = this.elements.hsBgCanvas.width - totalMargin - glyphMargin;
+        const clipHeight = this.elements.hsBgCanvas.height - totalMargin - glyphMargin;
+        
+        // Only allow point creation within the valid area
+        if (x < clipX || x > clipX + clipWidth || y < clipY || y > clipY + clipHeight) {
+            return;
         }
+        
+        const au = (x - this.state.transform.offsetX) / this.state.transform.scale;
+        const av = (y - this.state.transform.offsetY) / this.state.transform.scale;
+        const { viewLightness, viewAlpha } = this.state;
+        const {r, g, b} = this.abstractToRgb(au, av, viewLightness);
+        if (this.isValidColor(r, g, b)) {
+            this.markAsDirty();
+            const n = this.state.points.length;
+            if (n > 0) {
+                this.state.points.forEach(p => {
+                    p.pos = p.pos - (p.pos / n);
+                });
+            }
+            const newPoint = {
+                id: Date.now(),
+                hsPos: {u: au, v: av},
+                originalHsPos: {u: au, v: av},
+                lightness: viewLightness,
+                alpha: viewAlpha,
+                pos: n === 0 ? 0.5 : 1.0,
+                order: 1,
+            };
+            this.state.points.push(newPoint);
+            this.sortPoints();
+            this.state.selectedPointIds.clear();
+            this.state.selectedPointIds.add(newPoint.id);
+            this.state.lastSelectedPointId = newPoint.id;
+            this.drawAll();
+        }
+    }
         
         handleLineDrag(y, canvasHeight, dragType) {
     const propertyName = dragType.startsWith('lightness') ? 'lightness' : 'alpha';
@@ -3253,101 +3254,63 @@ createKaTeXLabel(expression, x, y, position, canvas) {
             this.drawAll();
         }
     
-        handleHSPointDrag(x, y) {
-    const { startX, startY, initialPointPositions } = this.state.activeDrag;
-    const { scale, offsetX, offsetY } = this.state.transform;
-
-    const dx = x - startX;
-    const dy = y - startY;
-
-    this.state.points.forEach(p => {
-        if (initialPointPositions.has(p.id)) {
-            const initialPos = initialPointPositions.get(p.id);
-            const targetX = initialPos.x + dx;
-            const targetY = initialPos.y + dy;
-
-            // Get the smooth boundary point
-            const snapped = this.findClosestValidPoint(targetX, targetY, p.lightness);
-
-            const snappedU = (snapped.x - offsetX) / scale;
-            const snappedV = (snapped.y - offsetY) / scale;
-
-            // Update both current and original positions for consistency
-            p.hsPos = { u: snappedU, v: snappedV };
-            
-            // Only update originalHsPos if we're actually within the valid gamut
-            // This prevents jumping when we return to valid space
-            const testColor = this.abstractToRgb(snappedU, snappedV, p.lightness);
-            if (this.isValidColor(testColor.r, testColor.g, testColor.b)) {
-                p.originalHsPos = { u: snappedU, v: snappedV };
-            }
-        }
-    });
-}
-
-adjustPointForNewLightness(point, oldLightness) {
-    // Always try to use the original HS position first
-    const originalColor = this.abstractToRgb(point.originalHsPos.u, point.originalHsPos.v, point.lightness);
-    
-    if (this.isValidColor(originalColor.r, originalColor.g, originalColor.b)) {
-        // Original position is valid at new lightness, restore it
-        point.hsPos = { ...point.originalHsPos };
-        return;
-    }
-    
-    // Original position is not valid, need to find closest valid point
-    // but maintain the direction from center to preserve hue as much as possible
-    
-    if (this.state.colorSpace === 'HSL_DI_CONE') {
-        // For HSL, just clamp to the new radius while preserving angle (hue)
-        const radius = Math.sqrt(point.originalHsPos.u * point.originalHsPos.u + point.originalHsPos.v * point.originalHsPos.v);
-        const radiusAtL = 1 - Math.abs(2 * point.lightness - 1);
+    handleHSPointDrag(x, y) {
+        const { startX, startY, initialPointPositions } = this.state.activeDrag;
+        const { scale, offsetX, offsetY } = this.state.transform;
         
-        if (radius > radiusAtL && radiusAtL > 1e-6) {
-            const scale = radiusAtL / radius;
-            point.hsPos.u = point.originalHsPos.u * scale;
-            point.hsPos.v = point.originalHsPos.v * scale;
-        } else {
-            // If radius is within bounds, use original
-            point.hsPos = { ...point.originalHsPos };
-        }
-    } else {
-        // For RGB cube, find the closest valid point along the direction from center to original
-        const centerU = 0;
-        const centerV = 0;
-        const directionU = point.originalHsPos.u - centerU;
-        const directionV = point.originalHsPos.v - centerV;
-        const directionLength = Math.sqrt(directionU * directionU + directionV * directionV);
+        const glyphMargin = Math.ceil(C.NODE_RADIUS * 2.2);
+        const tickMargin = Math.ceil(C.CHECKERBOARD_SIZE / 2);
+        const totalMargin = glyphMargin + tickMargin;
         
-        if (directionLength > 1e-6) {
-            const normalizedDirU = directionU / directionLength;
-            const normalizedDirV = directionV / directionLength;
-            
-            // Binary search for the boundary along the original direction
-            let low = 0.0;
-            let high = directionLength;
-            const iterations = 20;
-            
-            for (let i = 0; i < iterations; i++) {
-                const mid = (low + high) / 2;
-                const testU = centerU + normalizedDirU * mid;
-                const testV = centerV + normalizedDirV * mid;
-                const testColor = this.abstractToRgb(testU, testV, point.lightness);
+        const clipX = totalMargin;
+        const clipY = totalMargin;
+        const clipWidth = this.elements.hsBgCanvas.width - totalMargin - glyphMargin;
+        const clipHeight = this.elements.hsBgCanvas.height - totalMargin - glyphMargin;
+
+        const dx = x - startX;
+        const dy = y - startY;
+
+        this.state.points.forEach(p => {
+            if (initialPointPositions.has(p.id)) {
+                const initialPos = initialPointPositions.get(p.id);
+                const targetX = initialPos.x + dx;
+                const targetY = initialPos.y + dy;
+
+                // Clamp the target position to the drawable area first
+                const clampedTargetX = Math.max(clipX, Math.min(clipX + clipWidth, targetX));
+                const clampedTargetY = Math.max(clipY, Math.min(clipY + clipHeight, targetY));
+
+                // Get the smooth boundary point within the drawable area
+                const snapped = this.findClosestValidPoint(clampedTargetX, clampedTargetY, p.lightness);
+
+                const snappedU = (snapped.x - offsetX) / scale;
+                const snappedV = (snapped.y - offsetY) / scale;
+
+                // Update both current and original positions for consistency
+                p.hsPos = { u: snappedU, v: snappedV };
                 
+                // Only update originalHsPos if we're actually within the valid gamut
+                // This prevents jumping when we return to valid space
+                const testColor = this.abstractToRgb(snappedU, snappedV, p.lightness);
                 if (this.isValidColor(testColor.r, testColor.g, testColor.b)) {
-                    low = mid;
-                } else {
-                    high = mid;
+                    p.originalHsPos = { u: snappedU, v: snappedV };
                 }
             }
-            
-            point.hsPos.u = centerU + normalizedDirU * low;
-            point.hsPos.v = centerV + normalizedDirV * low;
-        } else {
-            point.hsPos = { u: 0, v: 0 };
-        }
+        });
     }
-}
+
+    adjustPointForNewLightness(point, oldLightness) {
+       const originalColor = this.abstractToRgb(point.originalHsPos.u, point.originalHsPos.v, point.lightness);
+       
+       if (this.isValidColor(originalColor.r, originalColor.g, originalColor.b)) {
+           point.hsPos = { ...point.originalHsPos };
+           return;
+       }
+       
+       const clamped = this.clampAbstractPoint(point.originalHsPos.u, point.originalHsPos.v, point.lightness);
+       point.hsPos.u = clamped.u;
+       point.hsPos.v = clamped.v;
+   }
     
     handleSliderPointDrag(point, x, y, canvas, dragType) {
         const { offsets } = this.state.activeDrag;
