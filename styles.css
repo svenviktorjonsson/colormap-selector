@@ -1,10 +1,11 @@
+/* ========== GLOBAL STYLES ========== */
 body {
     font-family: 'Inter', sans-serif;
     touch-action: none;
     user-select: none;
 }
 
-/* --- Main Layout --- */
+/* ========== MAIN LAYOUT ========== */
 .color-editor-layout {
     display: grid;
     grid-template-columns: repeat(6, 1fr);
@@ -33,7 +34,7 @@ body {
 #selected-color-section { grid-column: 6 / span 1; grid-row: 1 / span 1; }
 #current-colormap-section { grid-column: 6 / span 1; grid-row: 2 / span 1; }
 
-/* --- Unified Container Style for ALL Panels --- */
+/* ========== UNIFIED CONTAINER STYLES ========== */
 .preset-wrapper,
 .control-section {
     display: flex;
@@ -45,7 +46,7 @@ body {
     padding: 0;
 }
 
-/* --- Unified Panel Header --- */
+/* ========== PANEL HEADERS ========== */
 .panel-header {
     display: flex;
     align-items: center;
@@ -63,7 +64,6 @@ body {
     border-bottom: none;
 }
 
-/* --- Preset Category Header (for Colors/Colormaps with + button) --- */
 .preset-category-header {
     display: flex;
     align-items: center;
@@ -89,13 +89,29 @@ body {
     flex-grow: 1;
 }
 
-/* --- Alignment Fix for Lightness/Alpha Panels --- */
+.section-title {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    height: 28px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: #a0aec0;
+    text-transform: uppercase;
+    background-color: #3a4652;
+    border-radius: 0.375rem 0.375rem 0 0;
+    padding: 0 6px;
+    margin: 0;
+    border-bottom: none;
+}
+
+/* ========== CANVAS & INTERACTIVE AREAS ========== */
 #lightness-wrapper,
 #alpha-wrapper {
     height: 100%;
 }
 
-/* --- Canvas & Interactive Areas --- */
 .canvas-container {
     position: relative;
     cursor: grab;
@@ -126,29 +142,25 @@ body {
     padding: 0;
 }
 
-/* --- Control Section (Rightmost column) Specifics --- */
+.interactive-canvas {
+    position: absolute; 
+    top: 0; 
+    left: 0;
+    width: 100%; 
+    height: 100%;
+    pointer-events: auto; 
+    z-index: 10;
+    margin: 0;
+    padding: 0;
+}
+.hs-interactive { cursor: crosshair; }
+.lightness-interactive, .alpha-interactive { cursor: ns-resize; }
+
+/* ========== CONTROL SECTIONS ========== */
 .control-section {
     padding: 0;
 }
 
-.section-title {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-    height: 28px;
-    font-size: 0.7rem;
-    font-weight: 600;
-    color: #a0aec0;
-    text-transform: uppercase;
-    background-color: #3a4652;
-    border-radius: 0.375rem 0.375rem 0 0;
-    padding: 0 6px;
-    margin: 0;
-    border-bottom: none;
-}
-
-/* Content area inside control sections */
 .control-section > *:not(.section-title) {
     margin-left: 0.375rem;
     margin-right: 0.375rem;
@@ -181,7 +193,7 @@ body {
     margin-bottom: 0.5rem;
 }
 
-/* --- Preset List Specifics --- */
+/* ========== PRESET LISTS ========== */
 .preset-items-container {
     padding: 0.25rem;
     flex-grow: 1;
@@ -235,7 +247,7 @@ body {
 }
 .add-preset-btn:hover { color: #ffffff; }
 
-/* --- Input Field Styling --- */
+/* ========== INPUT FIELDS ========== */
 .input-label {
     font-size: 0.65rem; 
     font-weight: 500; 
@@ -280,7 +292,17 @@ body {
     margin: 0;
 }
 
-/* Interpolation button styling to match other inputs */
+.values-grid .input-label {
+    font-size: 0.75rem;
+    text-align: center;
+    margin-bottom: 0.25rem;
+}
+
+.values-grid .value-input {
+    width: 100%;
+}
+
+/* ========== INTERPOLATION BUTTONS ========== */
 .interpolation-button {
     height: 1.5rem;
     border: 1px solid #718096;
@@ -311,21 +333,7 @@ body {
     box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.5);
 }
 
-/* --- Misc UI Elements --- */
-.interactive-canvas {
-    position: absolute; 
-    top: 0; 
-    left: 0;
-    width: 100%; 
-    height: 100%;
-    pointer-events: auto; 
-    z-index: 10;
-    margin: 0;
-    padding: 0;
-}
-.hs-interactive { cursor: crosshair; }
-.lightness-interactive, .alpha-interactive { cursor: ns-resize; }
-
+/* ========== TAB BUTTONS ========== */
 .tab-button {
     padding: 2px 6px; 
     border-radius: 4px; 
@@ -341,7 +349,82 @@ body {
 .tab-button.active { color: #ffffff; background-color: #3b82f6; }
 .tab-button:hover:not(.active) { background-color: #4a5568; }
 
-.hidden { display: none !important; }
+/* ========== BUTTON LAYOUT ========== */
+.button-container {
+    margin: 0.375rem;
+    margin-top: 0.375rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.button-row {
+    display: flex;
+    gap: 0.25rem;
+    width: 100%;
+}
+
+.reverse-button {
+    flex: 1;
+    padding: 6px; 
+    font-size: 0.75rem; 
+    font-weight: 500;
+    color: #ffffff; 
+    background-color: #8b5cf6;
+    border: none; 
+    border-radius: 4px; 
+    cursor: pointer;
+    transition: background-color 0.2s ease-in-out;
+    height: 2rem; 
+    box-sizing: border-box;
+}
+
+.reverse-button:hover { 
+    background-color: #7c3aed; 
+}
+
+.cycle-button {
+    flex: 1;
+    padding: 6px; 
+    font-size: 0.75rem; 
+    font-weight: 500;
+    color: #ffffff; 
+    background-color: #10b981;
+    border: none; 
+    border-radius: 4px; 
+    cursor: pointer;
+    transition: background-color 0.2s ease-in-out;
+    height: 2rem; 
+    box-sizing: border-box;
+}
+
+.cycle-button:hover { 
+    background-color: #059669; 
+}
+
+.cycle-button.active {
+    background-color: #065f46;
+    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.close-button {
+    width: 100%;
+    padding: 6px; 
+    font-size: 0.75rem; 
+    font-weight: 500;
+    color: #ffffff; 
+    background-color: #6b7280;
+    border: none; 
+    border-radius: 4px; 
+    cursor: pointer;
+    transition: background-color 0.2s ease-in-out;
+    height: 2rem; 
+    box-sizing: border-box;
+}
+
+.close-button:hover { 
+    background-color: #4b5563; 
+}
 
 .select-button {
     width: 100%;
@@ -355,10 +438,37 @@ body {
     cursor: pointer;
     transition: background-color 0.2s ease-in-out;
     height: 2rem; 
-    flex-shrink: 0;
+    box-sizing: border-box;
 }
-.select-button:hover { background-color: #2563eb; }
 
+.select-button:hover { 
+    background-color: #2563eb; 
+}
+
+.reverse-button:disabled,
+.cycle-button:disabled {
+    background-color: #4a5568;
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
+.reverse-button:disabled:hover,
+.cycle-button:disabled:hover {
+    background-color: #4a5568;
+}
+
+.select-button:disabled {
+    background-color: #4a5568;
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
+.select-button:disabled:hover {
+    background-color: #4a5568;
+}
+
+/* ========== UTILITY CLASSES ========== */
+.hidden { display: none !important; }
 .space-y-2 > * + * { margin-top: 0.25rem; }
 .text-center { text-align: center; }
 .grid { display: grid; }
@@ -371,38 +481,7 @@ body {
 .w-full { width: 100%; }
 .h-full { height: 100%; }
 
-/* --- Modal and Context Menu Styles --- */
-
-.modal-title { 
-    font-size: 16px; 
-    font-weight: 500; 
-    color: #e2e8f0; 
-    text-align: center; 
-}
-.modal-input {
-    width: 100%; 
-    background-color: #4a5568; 
-    border: 1px solid #718096;
-    border-radius: 4px; 
-    padding: 8px; 
-    color: #e2e8f0;
-}
-.modal-buttons { 
-    display: flex; 
-    justify-content: flex-end; 
-    gap: 8px; 
-}
-.modal-button {
-    padding: 6px 12px; 
-    border: none; 
-    border-radius: 4px;
-    cursor: pointer; 
-    font-size: 14px; 
-    font-weight: 500;
-}
-.modal-button-primary { background-color: #3b82f6; color: white; }
-.modal-button-secondary { background-color: #4a5568; color: #e2e8f0; }
-
+/* ========== MODAL AND CONTEXT MENU ========== */
 .modal-overlay {
     position: fixed; 
     top: 0; 
@@ -415,6 +494,7 @@ body {
     align-items: center; 
     z-index: 1000;
 }
+
 .modal-dialog {
     background-color: #2d3748; 
     padding: 20px; 
@@ -426,9 +506,43 @@ body {
     gap: 16px;
 }
 
+.modal-title { 
+    font-size: 16px; 
+    font-weight: 500; 
+    color: #e2e8f0; 
+    text-align: center; 
+}
+
+.modal-input {
+    width: 100%; 
+    background-color: #4a5568; 
+    border: 1px solid #718096;
+    border-radius: 4px; 
+    padding: 8px; 
+    color: #e2e8f0;
+}
+
+.modal-buttons { 
+    display: flex; 
+    justify-content: flex-end; 
+    gap: 8px; 
+}
+
+.modal-button {
+    padding: 6px 12px; 
+    border: none; 
+    border-radius: 4px;
+    cursor: pointer; 
+    font-size: 14px; 
+    font-weight: 500;
+}
+
+.modal-button-primary { background-color: #3b82f6; color: white; }
+.modal-button-secondary { background-color: #4a5568; color: #e2e8f0; }
+
 .context-menu {
     position: fixed; 
-    z-index: 1012; /* Higher than modal for context menus */
+    z-index: 1012;
     background-color: #2d3748;
     border: 1px solid #4a5568; 
     border-radius: 6px;
@@ -448,80 +562,5 @@ body {
     border-radius: 4px; 
     font-size: 14px;
 }
+
 .context-menu-item:hover { background-color: #3b82f6; }
-
-.button-container {
-    margin: 0.375rem;
-    margin-top: 0.375rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-}
-
-.close-button {
-    width: 100%;
-    padding: 6px; 
-    font-size: 0.75rem; 
-    font-weight: 500;
-    color: #ffffff; 
-    background-color: #6b7280;
-    border: none; 
-    border-radius: 4px; 
-    cursor: pointer;
-    transition: background-color 0.2s ease-in-out;
-    height: 2rem; 
-    flex-shrink: 0;
-}
-
-.close-button:hover { 
-    background-color: #4b5563; 
-}
-
-.reverse-button {
-    width: 100%;
-    padding: 6px; 
-    font-size: 0.75rem; 
-    font-weight: 500;
-    color: #ffffff; 
-    background-color: #8b5cf6;
-    border: none; 
-    border-radius: 4px; 
-    cursor: pointer;
-    transition: background-color 0.2s ease-in-out;
-    height: 2rem; 
-    flex-shrink: 0;
-}
-
-.reverse-button:hover { 
-    background-color: #7c3aed; 
-}
-
-.select-button:disabled {
-    background-color: #4a5568;
-    cursor: not-allowed;
-    opacity: 0.6;
-}
-
-.select-button:disabled:hover {
-    background-color: #4a5568;
-}
-
-.reverse-button:disabled {
-    background-color: #4a5568;
-    cursor: not-allowed;
-    opacity: 0.6;
-}
-
-.reverse-button:disabled:hover {
-    background-color: #4a5568;
-}
-
-.values-grid .input-label {
-    font-size: 0.75rem;
-    text-align: center;
-    margin-bottom: 0.25rem;
-}
-
-.values-grid .value-input {
-    width: 100%;
-}

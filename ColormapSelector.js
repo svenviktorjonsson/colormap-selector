@@ -5,65 +5,68 @@ import namedColormapsData from './named_colormaps.js';
 
 export default class ColormapSelector {
     constructor(customColors = {}, customColormaps = {}) {
-    this.state = {
-        points: [],
-        selectedPointIds: new Set(),
-        lastSelectedPointId: null,
-        activeDrag: { type: null, element: null, pointId: null },
-        transform: { scale: 1, offsetX: 0, offsetY: 0 },
-        viewLightness: 0.5,
-        viewAlpha: 1.0,
-        colorSpace: 'RGB_CUBE',
-        undoStack: [],
-        redoStack: [],
-        isMouseInCanvas: false,
-        isDirty: false,
-        loadedColormapName: null,
-        loadedColormapType: null
-    };
+        this.state = {
+            points: [],
+            selectedPointIds: new Set(),
+            lastSelectedPointId: null,
+            activeDrag: { type: null, element: null, pointId: null },
+            transform: { scale: 1, offsetX: 0, offsetY: 0 },
+            viewLightness: 0.5,
+            viewAlpha: 1.0,
+            colorSpace: 'RGB_CUBE',
+            undoStack: [],
+            redoStack: [],
+            isMouseInCanvas: false,
+            isDirty: false,
+            loadedColormapName: null,
+            loadedColormapType: null,
+            isCyclic: false
+        };
 
-    this.namedColors = {};
-    this.customColors = { ...customColors };
-    this.namedColormaps = {};
-    this.customColormaps = { ...customColormaps };
+        this.namedColors = {};
+        this.customColors = { ...customColors };
+        this.namedColormaps = {};
+        this.customColormaps = { ...customColormaps };
 
-    this.clickCount = 0;
-    this.lastClickTime = 0;
-    this.lastClickTarget = null;
-    
-    this.wrapper = null;
-    this.elements = {};
-}
+        this.clickCount = 0;
+        this.lastClickTime = 0;
+        this.lastClickTarget = null;
+        
+        this.wrapper = null;
+        this.elements = {};
+    }
 
     initialize() {
-    try {
-        this.namedColors = namedColorsData;
-        this.namedColormaps = namedColormapsData;
+        try {
+            this.namedColors = namedColorsData;
+            this.namedColormaps = namedColormapsData;
 
-        this.initializeDOM();
-        this.populatePresets();
-        
-        this.state.points = [];
-        this.state.selectedPointIds.clear();
-        this.state.lastSelectedPointId = null;
-        this.state.viewLightness = 0.5;
-        this.state.viewAlpha = 1.0;
-        this.state.loadedColormapName = null;
-        this.state.loadedColormapType = null;
-        this.setDirty(false);
-        
-        this.updateTabs();
-        this.setupCanvases();
-        this.setupEventListeners();
-        this.drawAll();
-    } catch (error) {
-        console.error("FATAL: Could not initialize ColorEditor.", error);
-        if (this.wrapper) {
-            this.wrapper.innerHTML = `<div style="padding: 1em; color: #d8000c; background-color: #ffbaba; border: 1px solid; border-radius: 0.5rem; font-family: sans-serif;"><strong>Error:</strong> Could not load critical data files.</div>`;
-            this.show();
+            this.initializeDOM();
+            this.populatePresets();
+            
+            this.state.points = [];
+            this.state.selectedPointIds.clear();
+            this.state.lastSelectedPointId = null;
+            this.state.viewLightness = 0.5;
+            this.state.viewAlpha = 1.0;
+            this.state.loadedColormapName = null;
+            this.state.loadedColormapType = null;
+            this.state.isCyclic = false;
+            this.state.originalPositions = null;
+            this.setDirty(false);
+            
+            this.updateTabs();
+            this.setupCanvases();
+            this.setupEventListeners();
+            this.drawAll();
+        } catch (error) {
+            console.error("FATAL: Could not initialize ColorEditor.", error);
+            if (this.wrapper) {
+                this.wrapper.innerHTML = `<div style="padding: 1em; color: #d8000c; background-color: #ffbaba; border: 1px solid; border-radius: 0.5rem; font-family: sans-serif;"><strong>Error:</strong> Could not load critical data files.</div>`;
+                this.show();
+            }
         }
     }
-}
 
     hide() {
     if (!this.wrapper) return;
@@ -106,7 +109,9 @@ export default class ColormapSelector {
             colorSpace: this.state.colorSpace,
             isDirty: this.state.isDirty,
             loadedColormapName: this.state.loadedColormapName,
-            loadedColormapType: this.state.loadedColormapType
+            loadedColormapType: this.state.loadedColormapType,
+            isCyclic: this.state.isCyclic,
+            originalPositions: this.state.originalPositions
         };
     }
 
@@ -248,43 +253,53 @@ export default class ColormapSelector {
     this.drawAll();
 }
     
-        loadColormap(name, type, isInitialLoad = false) {
-   if (!isInitialLoad) this.saveState();
-   
-   const colormapData = (type === 'named_colormaps') ? this.namedColormaps[name] : this.customColormaps[name];
-   
-   if (!colormapData || !colormapData.points) {
-       console.error(`Colormap '${name}' not found or is invalid.`);
-       return;
-   }
+    loadColormap(name, type, isInitialLoad = false) {
+        if (!isInitialLoad) this.saveState();
+        
+        const colormapData = (type === 'named_colormaps') ? this.namedColormaps[name] : this.customColormaps[name];
+        
+        if (!colormapData || !colormapData.points) {
+            console.error(`Colormap '${name}' not found or is invalid.`);
+            return;
+        }
 
-   const newPoints = colormapData.points.map(p => {
-       let rgbArray = [0, 0, 0];
-       if (typeof p.color === 'string') {
-           rgbArray = this.namedColors[p.color] || this.customColors[p.color]?.rgb || rgbArray;
-       } else if (Array.isArray(p.color)) {
-           rgbArray = p.color;
-       }
+        const newPoints = colormapData.points.map(p => {
+            let rgbArray = [0, 0, 0];
+            if (typeof p.color === 'string') {
+                rgbArray = this.namedColors[p.color] || this.customColors[p.color]?.rgb || rgbArray;
+            } else if (Array.isArray(p.color)) {
+                rgbArray = p.color;
+            }
 
-       const r = rgbArray[0] / 255;
-       const g = rgbArray[1] / 255;
-       const b = rgbArray[2] / 255;
-       const alpha = p.alpha ?? 1.0;
-       return this.createPointFromRgb(r, g, b, alpha, p.pos, p.order);
-   });
+            const r = rgbArray[0] / 255;
+            const g = rgbArray[1] / 255;
+            const b = rgbArray[2] / 255;
+            const alpha = p.alpha ?? 1.0;
+            return this.createPointFromRgb(r, g, b, alpha, p.pos, p.order);
+        });
 
-   this.state.points = newPoints;
-   this.sortPoints();
-   this.state.selectedPointIds.clear();
-   this.state.lastSelectedPointId = null;
+        this.state.points = newPoints;
+        this.sortPoints();
+        this.state.selectedPointIds.clear();
+        this.state.lastSelectedPointId = null;
 
-   this.state.loadedColormapName = name;
-   this.state.loadedColormapType = type;
-   this.setDirty(false);
-   this.state.undoStack = [];
-   this.state.redoStack = [];
-   this.drawAll();
-}
+        // Handle cycling state
+        if (type === 'named_colormaps') {
+            // Named colormaps always reset cycling to false
+            this.state.isCyclic = false;
+        } else {
+            // Custom colormaps respect saved cycling state
+            this.state.isCyclic = colormapData.isCyclic || false;
+        }
+
+        this.state.loadedColormapName = name;
+        this.state.loadedColormapType = type;
+        this.state.originalPositions = null;
+        this.setDirty(false);
+        this.state.undoStack = [];
+        this.state.redoStack = [];
+        this.drawAll();
+    }
 
     createConstantButtonIcon() {
     return `<svg width="100%" height="100%" viewBox="0 0 40 20" style="pointer-events: none;">
@@ -306,246 +321,253 @@ createCubicButtonIcon() {
 }
     
     initializeDOM() {
-   this.elements = { interactiveCanvases: {} };
+        this.elements = { interactiveCanvases: {} };
 
-   const createEl = (tag, options = {}) => {
-       const el = document.createElement(tag);
-       if (options.id) {
-           el.id = options.id;
-           const camelCaseId = options.id.replace(/-(\w)/g, (_, letter) => letter.toUpperCase());
-           this.elements[camelCaseId] = el;
-       }
-       if (options.className) el.className = options.className;
-       if (options.text) el.textContent = options.text;
-       if (options.type) el.type = options.type;
-       if (options.placeholder) el.placeholder = options.placeholder;
-       return el;
-   };
+        const createEl = (tag, options = {}) => {
+            const el = document.createElement(tag);
+            if (options.id) {
+                el.id = options.id;
+                const camelCaseId = options.id.replace(/-(\w)/g, (_, letter) => letter.toUpperCase());
+                this.elements[camelCaseId] = el;
+            }
+            if (options.className) el.className = options.className;
+            if (options.text) el.textContent = options.text;
+            if (options.type) el.type = options.type;
+            if (options.placeholder) el.placeholder = options.placeholder;
+            return el;
+        };
 
-   this.wrapper = createEl('div', { id: 'colormap-selector-wrapper', className: 'color-editor-layout' });
-   this.wrapper.style.cssText = `
-       position: fixed; display: none; z-index: 1000; background-color: #1a202c; 
-       padding: 0.5rem; border-radius: 0.5rem; box-shadow: 0 10px 25px rgba(0,0,0,0.3); 
-       bottom: 0.5rem; right: 0.5rem; height: 50vh; max-width: 90vw; min-height: 400px; min-width: 600px;
-   `;
+        this.wrapper = createEl('div', { id: 'colormap-selector-wrapper', className: 'color-editor-layout' });
+        this.wrapper.style.cssText = `
+            position: fixed; display: none; z-index: 1000; background-color: #1a202c; 
+            padding: 0.5rem; border-radius: 0.5rem; box-shadow: 0 10px 25px rgba(0,0,0,0.3); 
+            bottom: 0.5rem; right: 0.5rem; height: 50vh; max-width: 90vw; min-height: 400px; min-width: 600px;
+        `;
 
-   const hsPane = createEl('div', { id: 'hs-pane-wrapper', className: 'preset-wrapper' });
-   const lightnessPane = createEl('div', { id: 'lightness-wrapper', className: 'preset-wrapper' });
-   const alphaPane = createEl('div', { id: 'alpha-wrapper', className: 'preset-wrapper' });
-   this.elements.colorsPresetsWrapper = createEl('div', { id: 'colors-presets-wrapper', className: 'preset-wrapper' });
-   this.elements.colormapsPresetsWrapper = createEl('div', { id: 'colormaps-presets-wrapper', className: 'preset-wrapper' });
-   const selectedColorPane = createEl('div', { id: 'selected-color-section', className: 'control-section' });
-   const colormapPreviewPane = createEl('div', { id: 'current-colormap-section', className: 'control-section' });
+        const hsPane = createEl('div', { id: 'hs-pane-wrapper', className: 'preset-wrapper' });
+        const lightnessPane = createEl('div', { id: 'lightness-wrapper', className: 'preset-wrapper' });
+        const alphaPane = createEl('div', { id: 'alpha-wrapper', className: 'preset-wrapper' });
+        this.elements.colorsPresetsWrapper = createEl('div', { id: 'colors-presets-wrapper', className: 'preset-wrapper' });
+        this.elements.colormapsPresetsWrapper = createEl('div', { id: 'colormaps-presets-wrapper', className: 'preset-wrapper' });
+        const selectedColorPane = createEl('div', { id: 'selected-color-section', className: 'control-section' });
+        const colormapPreviewPane = createEl('div', { id: 'current-colormap-section', className: 'control-section' });
 
-   const hsHeader = createEl('div', { className: 'panel-header' });
-   this.elements.tabRgbCube = createEl('button', { id: 'tab-rgb-cube', className: 'tab-button', text: 'RGB Cube' });
-   this.elements.tabHslCone = createEl('button', { id: 'tab-hsl-cone', className: 'tab-button', text: 'HSL Di-Cone' });
-   hsHeader.append(this.elements.tabRgbCube, this.elements.tabHslCone);
-   const hsContainer = createEl('div', { id: 'hs-canvas-container', className: 'canvas-container' });
-   const hsNodesContainer = createEl('div', { id: 'hs-nodes-container', className: 'absolute top-0 left-0 w-full h-full' });
-   hsContainer.append(createEl('canvas', { id: 'hs-bg-canvas' }), hsNodesContainer);
-   hsPane.append(hsHeader, hsContainer);
+        const hsHeader = createEl('div', { className: 'panel-header' });
+        this.elements.tabRgbCube = createEl('button', { id: 'tab-rgb-cube', className: 'tab-button', text: 'RGB Cube' });
+        this.elements.tabHslCone = createEl('button', { id: 'tab-hsl-cone', className: 'tab-button', text: 'HSL Di-Cone' });
+        hsHeader.append(this.elements.tabRgbCube, this.elements.tabHslCone);
+        const hsContainer = createEl('div', { id: 'hs-canvas-container', className: 'canvas-container' });
+        const hsNodesContainer = createEl('div', { id: 'hs-nodes-container', className: 'absolute top-0 left-0 w-full h-full' });
+        hsContainer.append(createEl('canvas', { id: 'hs-bg-canvas' }), hsNodesContainer);
+        hsPane.append(hsHeader, hsContainer);
 
-   const lightnessHeader = createEl('h2', { className: 'panel-header', text: 'Lightness' });
-   const lightnessContainer = createEl('div', { id: 'lightness-slider-container', className: 'canvas-container' });
-   const lightnessNodesContainer = createEl('div', { id: 'lightness-nodes-container', className: 'absolute top-0 left-0 w-full h-full' });
-   lightnessContainer.append(createEl('canvas', { id: 'lightness-bg-canvas' }), lightnessNodesContainer);
-   lightnessPane.append(lightnessHeader, lightnessContainer);
+        const lightnessHeader = createEl('h2', { className: 'panel-header', text: 'Lightness' });
+        const lightnessContainer = createEl('div', { id: 'lightness-slider-container', className: 'canvas-container' });
+        const lightnessNodesContainer = createEl('div', { id: 'lightness-nodes-container', className: 'absolute top-0 left-0 w-full h-full' });
+        lightnessContainer.append(createEl('canvas', { id: 'lightness-bg-canvas' }), lightnessNodesContainer);
+        lightnessPane.append(lightnessHeader, lightnessContainer);
 
-   const alphaHeader = createEl('h2', { className: 'panel-header', text: 'Alpha' });
-   const alphaContainer = createEl('div', { id: 'alpha-slider-container', className: 'canvas-container' });
-   const alphaNodesContainer = createEl('div', { id: 'alpha-nodes-container', className: 'absolute top-0 left-0 w-full h-full' });
-   alphaContainer.append(createEl('canvas', { id: 'alpha-bg-canvas' }), alphaNodesContainer);
-   alphaPane.append(alphaHeader, alphaContainer);
+        const alphaHeader = createEl('h2', { className: 'panel-header', text: 'Alpha' });
+        const alphaContainer = createEl('div', { id: 'alpha-slider-container', className: 'canvas-container' });
+        const alphaNodesContainer = createEl('div', { id: 'alpha-nodes-container', className: 'absolute top-0 left-0 w-full h-full' });
+        alphaContainer.append(createEl('canvas', { id: 'alpha-bg-canvas' }), alphaNodesContainer);
+        alphaPane.append(alphaHeader, alphaContainer);
 
-   const colorsHeader = createEl('div', { className: 'preset-category-header' });
-   colorsHeader.append(createEl('span', { className: 'preset-category-title', text: 'Colors' }), createEl('button', { className: 'add-preset-btn', text: '+' }));
-   this.elements.colorsPresetsWrapper.append(colorsHeader, createEl('div', { className: 'preset-items-container' }));
+        const colorsHeader = createEl('div', { className: 'preset-category-header' });
+        colorsHeader.append(createEl('span', { className: 'preset-category-title', text: 'Colors' }), createEl('button', { className: 'add-preset-btn', text: '+' }));
+        this.elements.colorsPresetsWrapper.append(colorsHeader, createEl('div', { className: 'preset-items-container' }));
 
-   const colormapsHeader = createEl('div', { className: 'preset-category-header' });
-   colormapsHeader.append(createEl('span', { className: 'preset-category-title', text: 'Colormaps' }), createEl('button', { className: 'add-preset-btn', text: '+' }));
-   this.elements.colormapsPresetsWrapper.append(colormapsHeader, createEl('div', { className: 'preset-items-container' }));
+        const colormapsHeader = createEl('div', { className: 'preset-category-header' });
+        colormapsHeader.append(createEl('span', { className: 'preset-category-title', text: 'Colormaps' }), createEl('button', { className: 'add-preset-btn', text: '+' }));
+        this.elements.colormapsPresetsWrapper.append(colormapsHeader, createEl('div', { className: 'preset-items-container' }));
 
-   const scTitle = createEl('h3', { className: 'section-title', text: 'Selected Color' });
-   const scPreviewContainer = createEl('div', { className: 'preview-container' });
-   scPreviewContainer.append(createEl('canvas', { id: 'selected-color-preview-canvas' }));
-   const inputsWrapper = createEl('div', { className: 'space-y-2' });
-   
-   const valuesGrid = createEl('div', { className: 'values-grid' });
-   valuesGrid.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.25rem;';
-   
-   const lightnessGroup = createEl('div');
-   lightnessGroup.append(createEl('h3', { className: 'input-label', text: 'Lightness' }), createEl('input', { type: 'text', id: 'lightness-input', className: 'value-input' }));
-   const alphaGroup = createEl('div');
-   alphaGroup.append(createEl('h3', { className: 'input-label', text: 'Alpha' }), createEl('input', { type: 'text', id: 'alpha-input', className: 'value-input' }));
-   const positionGroup = createEl('div');
-   positionGroup.append(createEl('h3', { className: 'input-label', text: 'Position' }), createEl('input', { type: 'text', id: 'position-input', className: 'value-input' }));
-   valuesGrid.append(lightnessGroup, alphaGroup, positionGroup);
-   
-   this.elements.rgbInputsContainer = createEl('div', { id: 'rgb-inputs-container' });
-   this.elements.rgbInputsContainer.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.25rem; margin-top: 0.25rem;';
-   const redInput = createEl('input', { type: 'text', id: 'rgb-r-input', placeholder: 'R', className: 'value-input' });
-   const greenInput = createEl('input', { type: 'text', id: 'rgb-g-input', placeholder: 'G', className: 'value-input' });
-   const blueInput = createEl('input', { type: 'text', id: 'rgb-b-input', placeholder: 'B', className: 'value-input' });
-   this.elements.rgbInputsContainer.append(redInput, greenInput, blueInput);
-   
-   this.elements.hslInputsContainer = createEl('div', { id: 'hsl-inputs-container', className: 'hidden' });
-   this.elements.hslInputsContainer.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr; gap: 0.25rem; margin-top: 0.25rem;';
-   const hueInput = createEl('input', { type: 'text', id: 'hsl-h-input', placeholder: 'H', className: 'value-input' });
-   const satInput = createEl('input', { type: 'text', id: 'hsl-s-input', placeholder: 'S', className: 'value-input' });
-   this.elements.hslInputsContainer.append(hueInput, satInput);
-   
-   const interpolationTitle = createEl('h3', { className: 'input-label', text: 'Interpolation' });
-   interpolationTitle.style.cssText = 'margin-top: 0.25rem; margin-bottom: 0.125rem;';
-   
-   const interpolationGrid = createEl('div', { className: 'interpolation-grid' });
-   interpolationGrid.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.25rem;';
+        const scTitle = createEl('h3', { className: 'section-title', text: 'Selected Color' });
+        const scPreviewContainer = createEl('div', { className: 'preview-container' });
+        scPreviewContainer.append(createEl('canvas', { id: 'selected-color-preview-canvas' }));
+        const inputsWrapper = createEl('div', { className: 'space-y-2' });
+        
+        const valuesGrid = createEl('div', { className: 'values-grid' });
+        valuesGrid.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.25rem;';
+        
+        const lightnessGroup = createEl('div');
+        lightnessGroup.append(createEl('h3', { className: 'input-label', text: 'Lightness' }), createEl('input', { type: 'text', id: 'lightness-input', className: 'value-input' }));
+        const alphaGroup = createEl('div');
+        alphaGroup.append(createEl('h3', { className: 'input-label', text: 'Alpha' }), createEl('input', { type: 'text', id: 'alpha-input', className: 'value-input' }));
+        const positionGroup = createEl('div');
+        positionGroup.append(createEl('h3', { className: 'input-label', text: 'Position' }), createEl('input', { type: 'text', id: 'position-input', className: 'value-input' }));
+        valuesGrid.append(lightnessGroup, alphaGroup, positionGroup);
+        
+        this.elements.rgbInputsContainer = createEl('div', { id: 'rgb-inputs-container' });
+        this.elements.rgbInputsContainer.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.25rem; margin-top: 0.25rem;';
+        const redInput = createEl('input', { type: 'text', id: 'rgb-r-input', placeholder: 'R', className: 'value-input' });
+        const greenInput = createEl('input', { type: 'text', id: 'rgb-g-input', placeholder: 'G', className: 'value-input' });
+        const blueInput = createEl('input', { type: 'text', id: 'rgb-b-input', placeholder: 'B', className: 'value-input' });
+        this.elements.rgbInputsContainer.append(redInput, greenInput, blueInput);
+        
+        this.elements.hslInputsContainer = createEl('div', { id: 'hsl-inputs-container', className: 'hidden' });
+        this.elements.hslInputsContainer.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr; gap: 0.25rem; margin-top: 0.25rem;';
+        const hueInput = createEl('input', { type: 'text', id: 'hsl-h-input', placeholder: 'H', className: 'value-input' });
+        const satInput = createEl('input', { type: 'text', id: 'hsl-s-input', placeholder: 'S', className: 'value-input' });
+        this.elements.hslInputsContainer.append(hueInput, satInput);
+        
+        const interpolationTitle = createEl('h3', { className: 'input-label', text: 'Interpolation' });
+        interpolationTitle.style.cssText = 'margin-top: 0.25rem; margin-bottom: 0.125rem;';
+        
+        const interpolationGrid = createEl('div', { className: 'interpolation-grid' });
+        interpolationGrid.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.25rem;';
 
-   this.elements.constantButton = createEl('button', { id: 'constant-button', className: 'interpolation-button active' });
-   this.elements.linearButton = createEl('button', { id: 'linear-button', className: 'interpolation-button' });
-   this.elements.cubicButton = createEl('button', { id: 'cubic-button', className: 'interpolation-button' });
+        this.elements.constantButton = createEl('button', { id: 'constant-button', className: 'interpolation-button active' });
+        this.elements.linearButton = createEl('button', { id: 'linear-button', className: 'interpolation-button' });
+        this.elements.cubicButton = createEl('button', { id: 'cubic-button', className: 'interpolation-button' });
 
-   this.elements.constantButton.innerHTML = this.createConstantButtonIcon();
-   this.elements.linearButton.innerHTML = this.createLinearButtonIcon();
-   this.elements.cubicButton.innerHTML = this.createCubicButtonIcon();
+        this.elements.constantButton.innerHTML = this.createConstantButtonIcon();
+        this.elements.linearButton.innerHTML = this.createLinearButtonIcon();
+        this.elements.cubicButton.innerHTML = this.createCubicButtonIcon();
 
-   interpolationGrid.append(this.elements.constantButton, this.elements.linearButton, this.elements.cubicButton);
-   
-   inputsWrapper.append(valuesGrid, this.elements.rgbInputsContainer, this.elements.hslInputsContainer, interpolationTitle, interpolationGrid);
-   selectedColorPane.append(scTitle, scPreviewContainer, inputsWrapper);
-   
-   const cmHeader = createEl('h3', { className: 'section-title text-center', text: 'Current Colormap' });
-   const cmPreviewContainer = createEl('div', { className: 'preview-container' });
-   cmPreviewContainer.append(createEl('canvas', { id: 'colormap-preview-canvas' }));
-   
-   const buttonContainer = createEl('div', { className: 'button-container' });
-   this.elements.reverseButton = createEl('button', { id: 'reverse-button', className: 'reverse-button', text: 'Reverse' });
-   this.elements.closeButton = createEl('button', { id: 'close-button', className: 'close-button', text: 'Close' });
-   this.elements.selectButton = createEl('button', { id: 'select-button', className: 'select-button', text: 'Select' });
-   buttonContainer.append(this.elements.reverseButton, this.elements.closeButton, this.elements.selectButton);
+        interpolationGrid.append(this.elements.constantButton, this.elements.linearButton, this.elements.cubicButton);
+        
+        inputsWrapper.append(valuesGrid, this.elements.rgbInputsContainer, this.elements.hslInputsContainer, interpolationTitle, interpolationGrid);
+        selectedColorPane.append(scTitle, scPreviewContainer, inputsWrapper);
+        
+        const cmHeader = createEl('h3', { className: 'section-title text-center', text: 'Current Colormap' });
+        const cmPreviewContainer = createEl('div', { className: 'preview-container' });
+        cmPreviewContainer.append(createEl('canvas', { id: 'colormap-preview-canvas' }));
+        
+        const buttonContainer = createEl('div', { className: 'button-container' });
+        this.elements.reverseButton = createEl('button', { id: 'reverse-button', className: 'reverse-button', text: 'Reverse' });
+        this.elements.cycleButton = createEl('button', { id: 'cycle-button', className: 'cycle-button', text: 'Cycle' });
+        this.elements.closeButton = createEl('button', { id: 'close-button', className: 'close-button', text: 'Close' });
+        this.elements.selectButton = createEl('button', { id: 'select-button', className: 'select-button', text: 'Select' });
+        
+        const topButtonRow = createEl('div', { className: 'button-row' });
+        topButtonRow.append(this.elements.reverseButton, this.elements.cycleButton);
+        buttonContainer.append(topButtonRow, this.elements.closeButton, this.elements.selectButton);
 
-   colormapPreviewPane.append(cmHeader, cmPreviewContainer, buttonContainer);
+        colormapPreviewPane.append(cmHeader, cmPreviewContainer, buttonContainer);
 
-   this.elements.modalOverlay = createEl('div', { id: 'modal-overlay', className: 'modal-overlay hidden' });
-   const modalDialog = createEl('div', { id: 'modal-dialog', className: 'modal-dialog' });
-   modalDialog.append(createEl('h3', { id: 'modal-title', className: 'modal-title' }), createEl('div', { id: 'modal-input-container', className: 'hidden' }), createEl('div', { id: 'modal-buttons', className: 'modal-buttons' }));
-   modalDialog.querySelector('#modal-input-container').append(createEl('input', { type: 'text', id: 'modal-input', className: 'modal-input' }));
-   this.elements.modalOverlay.append(modalDialog);
-   this.elements.contextMenu = createEl('div', { id: 'context-menu', className: 'context-menu hidden' });
+        this.elements.modalOverlay = createEl('div', { id: 'modal-overlay', className: 'modal-overlay hidden' });
+        const modalDialog = createEl('div', { id: 'modal-dialog', className: 'modal-dialog' });
+        modalDialog.append(createEl('h3', { id: 'modal-title', className: 'modal-title' }), createEl('div', { id: 'modal-input-container', className: 'hidden' }), createEl('div', { id: 'modal-buttons', className: 'modal-buttons' }));
+        modalDialog.querySelector('#modal-input-container').append(createEl('input', { type: 'text', id: 'modal-input', className: 'modal-input' }));
+        this.elements.modalOverlay.append(modalDialog);
+        this.elements.contextMenu = createEl('div', { id: 'context-menu', className: 'context-menu hidden' });
 
-   this.wrapper.append(hsPane, lightnessPane, this.elements.colorsPresetsWrapper, selectedColorPane, alphaPane, this.elements.colormapsPresetsWrapper, colormapPreviewPane, this.elements.modalOverlay, this.elements.contextMenu);
+        this.wrapper.append(hsPane, lightnessPane, this.elements.colorsPresetsWrapper, selectedColorPane, alphaPane, this.elements.colormapsPresetsWrapper, colormapPreviewPane, this.elements.modalOverlay, this.elements.contextMenu);
 
-   this.createInteractiveCanvas(hsNodesContainer, 'hs');
-   this.createInteractiveCanvas(lightnessNodesContainer, 'lightness');
-   this.createInteractiveCanvas(alphaNodesContainer, 'alpha');
-}
+        this.createInteractiveCanvas(hsNodesContainer, 'hs');
+        this.createInteractiveCanvas(lightnessNodesContainer, 'lightness');
+        this.createInteractiveCanvas(alphaNodesContainer, 'alpha');
+    }
 
-reverseColormap() {
-   if (this.state.points.length === 0) return;
-   
-   this.markAsDirty();
-   
-   this.state.points.forEach(point => {
-       point.pos = 1 - point.pos;
-   });
-   
-   this.sortPoints();
-   this.drawAll();
-}
+    reverseColormap() {
+        if (this.state.points.length === 0) return;
+        
+        this.state.points.forEach(point => {
+            point.pos = 1 - point.pos;
+        });
+        
+        this.sortPoints();
+        this.drawAll();
+    }
 
-setupEventListeners() {
-   this.elements.tabRgbCube.addEventListener('click', () => this.setColorSpace('RGB_CUBE'));
-   this.elements.tabHslCone.addEventListener('click', () => this.setColorSpace('HSL_DI_CONE'));
+    setupEventListeners() {
+        this.elements.tabRgbCube.addEventListener('click', () => this.setColorSpace('RGB_CUBE'));
+        this.elements.tabHslCone.addEventListener('click', () => this.setColorSpace('HSL_DI_CONE'));
 
-   this.wrapper.addEventListener('contextmenu', (e) => {
-       e.preventDefault();
-       e.stopPropagation();
-       
-       const canvas = e.target.closest('.interactive-canvas');
-       if (canvas) {
-           this.deselectAll();
-       }
-   });
+        this.wrapper.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            
+            const canvas = e.target.closest('.interactive-canvas');
+            if (canvas) {
+                this.deselectAll();
+            }
+        });
 
-   document.addEventListener('click', () => this.hideContextMenu());
+        document.addEventListener('click', () => this.hideContextMenu());
 
-   const resizeObserver = new ResizeObserver(() => this.setupCanvases());
-   resizeObserver.observe(this.wrapper);
+        const resizeObserver = new ResizeObserver(() => this.setupCanvases());
+        resizeObserver.observe(this.wrapper);
 
-   Object.values(this.elements.interactiveCanvases).forEach(canvas => {
-       canvas.addEventListener('mouseenter', () => { this.state.isMouseInCanvas = true; });
-       canvas.addEventListener('mouseleave', () => { this.state.isMouseInCanvas = false; });
-   });
+        Object.values(this.elements.interactiveCanvases).forEach(canvas => {
+            canvas.addEventListener('mouseenter', () => { this.state.isMouseInCanvas = true; });
+            canvas.addEventListener('mouseleave', () => { this.state.isMouseInCanvas = false; });
+        });
 
-   this.elements.hsNodesContainer.addEventListener('mousedown', (e) => this.handleMouseDown(e, 'hs'));
-   this.elements.lightnessNodesContainer.addEventListener('mousedown', (e) => this.handleMouseDown(e, 'lightness'));
-   this.elements.alphaNodesContainer.addEventListener('mousedown', (e) => this.handleMouseDown(e, 'alpha'));
+        this.elements.hsNodesContainer.addEventListener('mousedown', (e) => this.handleMouseDown(e, 'hs'));
+        this.elements.lightnessNodesContainer.addEventListener('mousedown', (e) => this.handleMouseDown(e, 'lightness'));
+        this.elements.alphaNodesContainer.addEventListener('mousedown', (e) => this.handleMouseDown(e, 'alpha'));
 
-   document.addEventListener('keydown', (e) => this.handleKeyDown(e));
+        document.addEventListener('keydown', (e) => this.handleKeyDown(e));
 
-   this.elements.lightnessInput.addEventListener('change', (e) => this.handleInputChange(e, 'lightness'));
-   this.elements.alphaInput.addEventListener('change', (e) => this.handleInputChange(e, 'alpha'));
-   this.elements.positionInput.addEventListener('change', (e) => this.handleInputChange(e, 'position'));
+        this.elements.lightnessInput.addEventListener('change', (e) => this.handleInputChange(e, 'lightness'));
+        this.elements.alphaInput.addEventListener('change', (e) => this.handleInputChange(e, 'alpha'));
+        this.elements.positionInput.addEventListener('change', (e) => this.handleInputChange(e, 'position'));
 
-   this.elements.constantButton.addEventListener('click', () => this.setInterpolationMode(0));
-   this.elements.linearButton.addEventListener('click', () => this.setInterpolationMode(1));
-   this.elements.cubicButton.addEventListener('click', () => this.setInterpolationMode(3));
+        this.elements.constantButton.addEventListener('click', () => this.setInterpolationMode(0));
+        this.elements.linearButton.addEventListener('click', () => this.setInterpolationMode(1));
+        this.elements.cubicButton.addEventListener('click', () => this.setInterpolationMode(3));
 
-   const colorChangeHandler = () => this.handleColorInputChange();
-   this.elements.rgbRInput.addEventListener('change', colorChangeHandler);
-   this.elements.rgbGInput.addEventListener('change', colorChangeHandler);
-   this.elements.rgbBInput.addEventListener('change', colorChangeHandler);
-   this.elements.hslHInput.addEventListener('change', colorChangeHandler);
-   this.elements.hslSInput.addEventListener('change', colorChangeHandler);
+        const colorChangeHandler = () => this.handleColorInputChange();
+        this.elements.rgbRInput.addEventListener('change', colorChangeHandler);
+        this.elements.rgbGInput.addEventListener('change', colorChangeHandler);
+        this.elements.rgbBInput.addEventListener('change', colorChangeHandler);
+        this.elements.hslHInput.addEventListener('change', colorChangeHandler);
+        this.elements.hslSInput.addEventListener('change', colorChangeHandler);
 
-   const presetEventHandler = (e) => {
-       const target = e.target.closest('.preset-item');
-       if (target) {
-           if (e.type === 'click') {
-               this.handlePresetClick(target);
-           } else if (e.type === 'contextmenu' && target.dataset.custom === 'true') {
-               e.preventDefault();
-               e.stopPropagation();
-               this.showContextMenu(e, target.dataset.name, target.dataset.type);
-           }
-       }
-   };
+        const presetEventHandler = (e) => {
+            const target = e.target.closest('.preset-item');
+            if (target) {
+                if (e.type === 'click') {
+                    this.handlePresetClick(target);
+                } else if (e.type === 'contextmenu' && target.dataset.custom === 'true') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    this.showContextMenu(e, target.dataset.name, target.dataset.type);
+                }
+            }
+        };
 
-   this.elements.colorsPresetsWrapper.addEventListener('click', presetEventHandler);
-   this.elements.colorsPresetsWrapper.addEventListener('contextmenu', presetEventHandler);
-   this.elements.colormapsPresetsWrapper.addEventListener('click', presetEventHandler);
-   this.elements.colormapsPresetsWrapper.addEventListener('contextmenu', presetEventHandler);
+        this.elements.colorsPresetsWrapper.addEventListener('click', presetEventHandler);
+        this.elements.colorsPresetsWrapper.addEventListener('contextmenu', presetEventHandler);
+        this.elements.colormapsPresetsWrapper.addEventListener('click', presetEventHandler);
+        this.elements.colormapsPresetsWrapper.addEventListener('contextmenu', presetEventHandler);
 
-   this.elements.reverseButton.addEventListener('click', () => {
-       this.reverseColormap();
-   });
+        this.elements.reverseButton.addEventListener('click', () => {
+            this.reverseColormap();
+        });
 
-   this.elements.closeButton.addEventListener('click', () => {
-       this.hide();
-   });
+        this.elements.cycleButton.addEventListener('click', () => {
+            this.toggleCycle();
+        });
 
-   this.elements.selectButton.addEventListener('click', () => {
-    const output = {
-        points: this.state.points.map(p => {
-            const color = this.abstractToRgb(p.hsPos.u, p.hsPos.v, p.lightness);
-            const rgb = this.clampColor(color);
-            return {
-                pos: parseFloat(p.pos.toFixed(4)),
-                alpha: parseFloat(p.alpha.toFixed(4)),
-                color: [rgb.r, rgb.g, rgb.b],
-                order: p.order
+        this.elements.closeButton.addEventListener('click', () => {
+            this.hide();
+        });
+
+        this.elements.selectButton.addEventListener('click', () => {
+            const output = {
+                points: this.state.points.map(p => {
+                    const color = this.abstractToRgb(p.hsPos.u, p.hsPos.v, p.lightness);
+                    const rgb = this.clampColor(color);
+                    return {
+                        pos: parseFloat(p.pos.toFixed(4)),
+                        alpha: parseFloat(p.alpha.toFixed(4)),
+                        color: [rgb.r, rgb.g, rgb.b],
+                        order: p.order
+                    };
+                }),
+                isCyclic: this.state.isCyclic
             };
-        })
-    };
 
-    const selectEvent = new CustomEvent('select', {
-        detail: output,
-        bubbles: true,
-        cancelable: true
-    });
-    this.wrapper.dispatchEvent(selectEvent);
-    });
-}
+            const selectEvent = new CustomEvent('select', {
+                detail: output,
+                bubbles: true,
+                cancelable: true
+            });
+            this.wrapper.dispatchEvent(selectEvent);
+        });
+    }
 
 setInterpolationMode(mode) {
     if (this.state.selectedPointIds.size === 0) return;
@@ -615,32 +637,35 @@ setInterpolationMode(mode) {
             }
         }
     
-        async promptAndSaveNewPreset(type, defaultName = '') {
-            const newName = await this.showPrompt('Save as:', ['Save', 'Cancel'], { placeholder: 'Enter a name', value: defaultName });
-            if (!newName) return false;
-    
-            if (type === 'custom_colors') {
-                const lastPoint = this.getLastSelectedPoint();
-                if(!lastPoint) return false;
-                const color = this.abstractToRgb(lastPoint.hsPos.u, lastPoint.hsPos.v, lastPoint.lightness);
+    async promptAndSaveNewPreset(type, defaultName = '') {
+        const newName = await this.showPrompt('Save as:', ['Save', 'Cancel'], { placeholder: 'Enter a name', value: defaultName });
+        if (!newName) return false;
+
+        if (type === 'custom_colors') {
+            const lastPoint = this.getLastSelectedPoint();
+            if(!lastPoint) return false;
+            const color = this.abstractToRgb(lastPoint.hsPos.u, lastPoint.hsPos.v, lastPoint.lightness);
+            const rgb = this.clampColor(color);
+            this.customColors[newName] = { rgb: [rgb.r, rgb.g, rgb.b], alpha: lastPoint.alpha };
+        } else {
+            const points = this.state.points.map(p => {
+                const color = this.abstractToRgb(p.hsPos.u, p.hsPos.v, p.lightness);
                 const rgb = this.clampColor(color);
-                this.customColors[newName] = { rgb: [rgb.r, rgb.g, rgb.b], alpha: lastPoint.alpha };
-            } else {
-                const points = this.state.points.map(p => {
-                    const color = this.abstractToRgb(p.hsPos.u, p.hsPos.v, p.lightness);
-                    const rgb = this.clampColor(color);
-                    return { pos: p.pos, alpha: p.alpha, color: [rgb.r, rgb.g, rgb.b], order: p.order };
-                });
-                this.customColormaps[newName] = { points };
-                this.state.loadedColormapName = newName;
-                this.state.loadedColormapType = type;
-                this.setDirty(false);
-            }
-    
-            this.saveCustomPresets(type);
-            this.populatePresets();
-            return true;
+                return { pos: p.pos, alpha: p.alpha, color: [rgb.r, rgb.g, rgb.b], order: p.order };
+            });
+            this.customColormaps[newName] = { 
+                points,
+                isCyclic: this.state.isCyclic
+            };
+            this.state.loadedColormapName = newName;
+            this.state.loadedColormapType = type;
+            this.setDirty(false);
         }
+
+        this.saveCustomPresets(type);
+        this.populatePresets();
+        return true;
+    }
     
         markAsDirty() {
             this.setDirty(true);
@@ -811,6 +836,57 @@ setInterpolationMode(mode) {
         if (inputConfig) modalInput.focus();
     });
 }
+
+    restoreOriginalPositions() {
+        for (const originalPoint of this.state.originalPositions) {
+            const currentPoint = this.state.points.find(p => p.id === originalPoint.id);
+            if (currentPoint) {
+                currentPoint.pos = originalPoint.pos;
+            }
+        }
+    }
+
+    toggleCycle() {
+        console.log('toggleCycle - isDirty:', this.state.isDirty, 'originalPositions:', !!this.state.originalPositions);
+        if (!this.state.isCyclic && this.state.points.length > 0) {
+            // Enabling cycling: rescale points only if there are points at BOTH extremes
+            const hasPointAtZero = this.state.points.some(p => Math.abs(p.pos) < 1e-6);
+            const hasPointAtOne = this.state.points.some(p => Math.abs(p.pos - 1) < 1e-6);
+            
+            if (hasPointAtZero && hasPointAtOne) {
+                // Store original positions before rescaling
+                this.state.originalPositions = this.state.points.map(p => ({ id: p.id, pos: p.pos }));
+                
+                const n = this.state.points.length;
+                const scaleFactor = 1 - (1 / n);  // For n=2: 0.5, for n=3: 0.667, etc.
+                this.state.points.forEach(point => {
+                    point.pos = point.pos * scaleFactor;
+                });
+            } else {
+                this.state.originalPositions = null;
+            }
+        } else if (this.state.isCyclic && this.state.points.length > 0) {
+            // Disabling cycling: restore original positions if not dirty
+            if (this.state.originalPositions && !this.state.isDirty) {
+                this.restoreOriginalPositions();
+            } else if (!this.state.isDirty) {
+                // Fallback: rescale points back only if not dirty
+                const maxPos = Math.max(...this.state.points.map(p => p.pos));
+                if (maxPos < 0.99) {  // If max position suggests they were rescaled
+                    const n = this.state.points.length;
+                    const scaleFactor = 1 - (1 / n);
+                    this.state.points.forEach(point => {
+                        point.pos = point.pos / scaleFactor;  // Inverse operation
+                    });
+                }
+            }
+            this.state.originalPositions = null;
+        }
+        
+        this.state.isCyclic = !this.state.isCyclic;
+        this.elements.cycleButton.classList.toggle('active', this.state.isCyclic);
+        this.drawAll();
+    }
     
         drawColorIcon(canvas, rgb) {
             const ctx = canvas.getContext('2d');
@@ -1072,7 +1148,7 @@ setupCanvases() {
 
       if (this.clickCount === 3) {
           this.state.points.forEach(p => selectedPointIds.add(p.id));
-          this.state.lastSelectedPointId = this.state.points.length > 0 ? this.state.points[this.state.points.length - 1].id : null;
+          this.state.lastSelectedPointId = pointId; // Keep the clicked point as the last selected
       } else if (this.clickCount === 2) {
           const hitIndex = this.state.points.findIndex(p => p.id === pointId);
           selectedPointIds.clear();
@@ -1494,155 +1570,64 @@ findHitPointHS(x, y) {
     ctx.drawImage(tempCanvas, clipX, clipY);
     ctx.globalAlpha = 1.0;
 }
+
     
-    getInterpolatedPropertiesAt(t) {
-    if (this.state.points.length === 0) return null;
-    if (this.state.points.length === 1) {
-        const { hsPos, lightness, alpha, order } = this.state.points[0];
-        return { 
-            u: hsPos.u, 
-            v: hsPos.v, 
-            lightness: Math.max(0, Math.min(1, lightness)), 
-            alpha: Math.max(0, Math.min(1, alpha)), 
-            order 
-        };
-    }
 
-    let segmentIndex = -1;
-    let p1, p2;
-    
-    if (t <= this.state.points[0].pos) {
-        const { hsPos, lightness, alpha, order } = this.state.points[0];
-        return { 
-            u: hsPos.u, 
-            v: hsPos.v, 
-            lightness: Math.max(0, Math.min(1, lightness)), 
-            alpha: Math.max(0, Math.min(1, alpha)), 
-            order 
-        };
-    }
-    
-    if (t >= this.state.points[this.state.points.length - 1].pos) {
-        const { hsPos, lightness, alpha, order } = this.state.points[this.state.points.length - 1];
-        return { 
-            u: hsPos.u, 
-            v: hsPos.v, 
-            lightness: Math.max(0, Math.min(1, lightness)), 
-            alpha: Math.max(0, Math.min(1, alpha)), 
-            order 
-        };
-    }
-
-    for (let i = 0; i < this.state.points.length - 1; i++) {
-        if (t >= this.state.points[i].pos && t <= this.state.points[i + 1].pos) {
-            segmentIndex = i;
-            p1 = this.state.points[i];
-            p2 = this.state.points[i + 1];
-            break;
-        }
-    }
-
-    if (segmentIndex === -1) return null;
-
-    const segmentDuration = p2.pos - p1.pos;
-    if (segmentDuration < 1e-6) {
-        const { hsPos, lightness, alpha } = p1;
-        return { 
-            u: hsPos.u, 
-            v: hsPos.v, 
-            lightness: Math.max(0, Math.min(1, lightness)), 
-            alpha: Math.max(0, Math.min(1, alpha)), 
-            order: p1.order 
-        };
-    }
-
-    const effectiveOrder = Math.max(p1.order, p2.order);
-    const tLocal = (t - p1.pos) / segmentDuration;
-    
-    if (effectiveOrder === 0) {
-        if (tLocal < 0.5) {
-            const { hsPos, lightness, alpha } = p1;
-            return { 
-                u: hsPos.u, 
-                v: hsPos.v, 
-                lightness: Math.max(0, Math.min(1, lightness)), 
-                alpha: Math.max(0, Math.min(1, alpha)), 
-                order: 0 
+    evaluateCubicSpline(segmentIndex, tLocal) {
+        const points = this.state.points;
+        const n = points.length;
+        
+        if (segmentIndex < 0 || segmentIndex >= n) return null;
+        
+        let p0, p1, p2, p3;
+        
+        if (this.state.isCyclic) {
+            // In cyclic mode, wrap around for all segments
+            const getPoint = (index) => {
+                const wrappedIndex = ((index % n) + n) % n;
+                return points[wrappedIndex];
             };
+            
+            if (segmentIndex === n - 1) {
+                // Last segment wraps to first
+                p0 = getPoint(segmentIndex - 1);
+                p1 = getPoint(segmentIndex);
+                p2 = getPoint(0);  // first point
+                p3 = getPoint(1);  // second point
+            } else {
+                // Normal segments but with cyclic wrapping for control points
+                p0 = getPoint(segmentIndex - 1);
+                p1 = getPoint(segmentIndex);
+                p2 = getPoint(segmentIndex + 1);
+                p3 = getPoint(segmentIndex + 2);
+            }
         } else {
-            const { hsPos, lightness, alpha } = p2;
-            return { 
-                u: hsPos.u, 
-                v: hsPos.v, 
-                lightness: Math.max(0, Math.min(1, lightness)), 
-                alpha: Math.max(0, Math.min(1, alpha)), 
-                order: 0 
-            };
+            // Non-cyclic mode (original logic)
+            p1 = points[segmentIndex];
+            p2 = points[segmentIndex + 1];
+            p0 = segmentIndex > 0 ? points[segmentIndex - 1] : points[segmentIndex];
+            p3 = segmentIndex + 2 < n ? points[segmentIndex + 2] : points[segmentIndex + 1];
         }
-    }
-
-    if (effectiveOrder === 1) {
-        return {
-            u: p1.hsPos.u + (p2.hsPos.u - p1.hsPos.u) * tLocal,
-            v: p1.hsPos.v + (p2.hsPos.v - p1.hsPos.v) * tLocal,
-            lightness: Math.max(0, Math.min(1, p1.lightness + (p2.lightness - p1.lightness) * tLocal)),
-            alpha: Math.max(0, Math.min(1, p1.alpha + (p2.alpha - p1.alpha) * tLocal)),
-            order: 1
+        
+        const t = tLocal;
+        const t2 = t * t;
+        const t3 = t2 * t;
+        
+        const interpolate = (v0, v1, v2, v3) => {
+            return 0.5 * ((2 * v1) + 
+                         (-v0 + v2) * t + 
+                         (2 * v0 - 5 * v1 + 4 * v2 - v3) * t2 + 
+                         (-v0 + 3 * v1 - 3 * v2 + v3) * t3);
         };
-    }
-
-    if (effectiveOrder === 3) {
-        const result = this.evaluateCubicSpline(segmentIndex, tLocal);
+        
         return {
-            u: result.u,
-            v: result.v,
-            lightness: Math.max(0, Math.min(1, result.lightness)),
-            alpha: Math.max(0, Math.min(1, result.alpha)),
+            u: interpolate(p0.hsPos.u, p1.hsPos.u, p2.hsPos.u, p3.hsPos.u),
+            v: interpolate(p0.hsPos.v, p1.hsPos.v, p2.hsPos.v, p3.hsPos.v),
+            lightness: interpolate(p0.lightness, p1.lightness, p2.lightness, p3.lightness),
+            alpha: interpolate(p0.alpha, p1.alpha, p2.alpha, p3.alpha),
             order: 2
         };
     }
-
-    return {
-        u: p1.hsPos.u + (p2.hsPos.u - p1.hsPos.u) * tLocal,
-        v: p1.hsPos.v + (p2.hsPos.v - p1.hsPos.v) * tLocal,
-        lightness: Math.max(0, Math.min(1, p1.lightness + (p2.lightness - p1.lightness) * tLocal)),
-        alpha: Math.max(0, Math.min(1, p1.alpha + (p2.alpha - p1.alpha) * tLocal)),
-        order: 1
-    };
-}
-
-evaluateCubicSpline(segmentIndex, tLocal) {
-    const points = this.state.points;
-    const n = points.length;
-    
-    const p1 = points[segmentIndex];
-    const p2 = points[segmentIndex + 1];
-    const p0 = segmentIndex > 0 ? points[segmentIndex - 1] : points[segmentIndex];
-    const p3 = segmentIndex + 2 < n ? points[segmentIndex + 2] : points[segmentIndex + 1];
-    
-    const t = tLocal;
-    const t2 = t * t;
-    const t3 = t2 * t;
-    
-    const interpolate = (v0, v1, v2, v3) => {
-        return 0.5 * ((2 * v1) + 
-                     (-v0 + v2) * t + 
-                     (2 * v0 - 5 * v1 + 4 * v2 - v3) * t2 + 
-                     (-v0 + 3 * v1 - 3 * v2 + v3) * t3);
-    };
-    
-    return {
-        u: interpolate(p0.hsPos.u, p1.hsPos.u, p2.hsPos.u, p3.hsPos.u),
-        v: interpolate(p0.hsPos.v, p1.hsPos.v, p2.hsPos.v, p3.hsPos.v),
-        lightness: interpolate(p0.lightness, p1.lightness, p2.lightness, p3.lightness),
-        alpha: interpolate(p0.alpha, p1.alpha, p2.alpha, p3.alpha),
-        order: 2
-    };
-}
-
-
-
-
 
         isValidColor(r, g, b) {
             return r >= -0.001 && r <= 1.001 && g >= -0.001 && g <= 1.001 && b >= -0.001 && b <= 1.001;
@@ -1755,78 +1740,146 @@ evaluateCubicSpline(segmentIndex, tLocal) {
             ctx.shadowBlur = 0;
         }
     
-        drawHSElements() {
-    const canvas = this.elements.interactiveCanvases['hs'];
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    drawHSElements() {
+        const canvas = this.elements.interactiveCanvases['hs'];
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    const glyphMargin = Math.ceil(C.NODE_RADIUS * 2.2);
-    const tickMargin = Math.ceil(C.CHECKERBOARD_SIZE / 2);
-    const totalMargin = glyphMargin + tickMargin;
-    
-    const clipX = totalMargin;
-    const clipY = totalMargin;
-    const clipWidth = canvas.width - totalMargin - glyphMargin;
-    const clipHeight = canvas.height - totalMargin - glyphMargin;
+        const glyphMargin = Math.ceil(C.NODE_RADIUS * 2.2);
+        const tickMargin = Math.ceil(C.CHECKERBOARD_SIZE / 2);
+        const totalMargin = glyphMargin + tickMargin;
+        
+        const clipX = totalMargin;
+        const clipY = totalMargin;
+        const clipWidth = canvas.width - totalMargin - glyphMargin;
+        const clipHeight = canvas.height - totalMargin - glyphMargin;
 
-    if (this.state.points.length > 1) {
-        this.drawConnectingLine(ctx, 'hs');
+        // Draw connecting lines first
+        if (this.state.points.length > 1) {
+            const tolerance = 0.02;
+            
+            // Draw normal segments
+            for (let i = 0; i < this.state.points.length - 1; i++) {
+                const p1 = this.state.points[i];
+                const p2 = this.state.points[i + 1];
+                
+                const effectiveOrder = Math.max(p1.order, p2.order);
+                if (effectiveOrder === 0) continue;
+                
+                this.drawHSSegment(ctx, p1, p2, effectiveOrder, tolerance);
+            }
+            
+            // Draw cyclic connection if enabled
+            if (this.state.isCyclic && this.state.points.length >= 2) {
+                const lastPoint = this.state.points[this.state.points.length - 1];
+                const firstPoint = this.state.points[0];
+                const effectiveOrder = Math.max(lastPoint.order, firstPoint.order);
+                if (effectiveOrder !== 0) {
+                    this.drawHSSegmentCyclic(ctx, lastPoint, firstPoint, effectiveOrder, tolerance);
+                }
+            }
+            
+            this.drawLightnessIntersectionDots(ctx, tolerance);
+        }
+
+        // Create clipping region for points
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(clipX, clipY, clipWidth, clipHeight);
+        ctx.clip();
+
+        this.state.points.forEach(point => {
+            const x = point.hsPos.u * this.state.transform.scale + this.state.transform.offsetX;
+            const y = point.hsPos.v * this.state.transform.scale + this.state.transform.offsetY;
+            
+            // Only draw if point is within the valid region (with some tolerance for edge points)
+            if (x >= clipX - C.NODE_RADIUS && x <= clipX + clipWidth + C.NODE_RADIUS &&
+                y >= clipY - C.NODE_RADIUS && y <= clipY + clipHeight + C.NODE_RADIUS) {
+                
+                const color = this.abstractToRgb(point.hsPos.u, point.hsPos.v, point.lightness);
+                const {r, g, b} = this.clampColor(color);
+
+                const isSelected = this.state.selectedPointIds.has(point.id);
+                const isLastSelected = point.id === this.state.lastSelectedPointId;
+                const isOnCurrentPlane = Math.abs(point.lightness - this.state.viewLightness) < 0.01;
+
+                ctx.save();
+
+                ctx.beginPath();
+                switch (point.order) {
+                    case 0: this._drawCircle(ctx, x, y, C.NODE_RADIUS); break;
+                    case 1: this._drawDroplet(ctx, x, y, C.NODE_RADIUS); break;
+                    case 3: this._drawTriangle(ctx, x, y, C.NODE_RADIUS); break;
+                    default: this._drawCircle(ctx, x, y, C.NODE_RADIUS);
+                }
+
+                ctx.globalAlpha = point.alpha;
+                ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+                ctx.fill();
+
+                ctx.globalAlpha = 1.0;
+                if (isOnCurrentPlane) {
+                    ctx.strokeStyle = isSelected ? C.COLOR_SELECTION_BLUE : 'black';
+                    ctx.lineWidth = isLastSelected ? C.LINE_WIDTH_SELECTED : C.LINE_WIDTH_DEFAULT;
+                    ctx.stroke();
+                } else {
+                    ctx.setLineDash(C.DASHED_LINE_STYLE);
+                    ctx.strokeStyle = isSelected ? C.COLOR_SELECTION_BLUE : 'black';
+                    ctx.lineWidth = C.LINE_WIDTH_DEFAULT;
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+                }
+                ctx.restore();
+            }
+        });
+        
+        ctx.restore(); // Remove clipping
     }
 
-    // Create clipping region for points
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(clipX, clipY, clipWidth, clipHeight);
-    ctx.clip();
-
-    this.state.points.forEach(point => {
-        const x = point.hsPos.u * this.state.transform.scale + this.state.transform.offsetX;
-        const y = point.hsPos.v * this.state.transform.scale + this.state.transform.offsetY;
+    drawHSSegmentCyclic(ctx, lastPoint, firstPoint, effectiveOrder, tolerance) {
+        const steps = 20;
+        const pathPoints = [];
         
-        // Only draw if point is within the valid region (with some tolerance for edge points)
-        if (x >= clipX - C.NODE_RADIUS && x <= clipX + clipWidth + C.NODE_RADIUS &&
-            y >= clipY - C.NODE_RADIUS && y <= clipY + clipHeight + C.NODE_RADIUS) {
+        for (let j = 0; j <= steps; j++) {
+            const tLocal = j / steps;
+            const globalT = lastPoint.pos + tLocal * (1 - lastPoint.pos + firstPoint.pos);
+            let wrappedT = globalT > 1 ? globalT - 1 : globalT;
             
-            const color = this.abstractToRgb(point.hsPos.u, point.hsPos.v, point.lightness);
-            const {r, g, b} = this.clampColor(color);
-
-            const isSelected = this.state.selectedPointIds.has(point.id);
-            const isLastSelected = point.id === this.state.lastSelectedPointId;
-            const isOnCurrentPlane = Math.abs(point.lightness - this.state.viewLightness) < 0.01;
-
-            ctx.save();
-
-            ctx.beginPath();
-            switch (point.order) {
-                case 0: this._drawCircle(ctx, x, y, C.NODE_RADIUS); break;
-                case 1: this._drawDroplet(ctx, x, y, C.NODE_RADIUS); break;
-                case 3: this._drawTriangle(ctx, x, y, C.NODE_RADIUS); break;
-                default: this._drawCircle(ctx, x, y, C.NODE_RADIUS);
-            }
-
-            ctx.globalAlpha = point.alpha;
-            ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
-            ctx.fill();
-
-            ctx.globalAlpha = 1.0;
-            if (isOnCurrentPlane) {
-                ctx.strokeStyle = isSelected ? C.COLOR_SELECTION_BLUE : 'black';
-                ctx.lineWidth = isLastSelected ? C.LINE_WIDTH_SELECTED : C.LINE_WIDTH_DEFAULT;
-                ctx.stroke();
-            } else {
-                ctx.setLineDash(C.DASHED_LINE_STYLE);
-                ctx.strokeStyle = isSelected ? C.COLOR_SELECTION_BLUE : 'black';
-                ctx.lineWidth = C.LINE_WIDTH_DEFAULT;
-                ctx.stroke();
-                ctx.setLineDash([]);
-            }
-            ctx.restore();
+            const props = this.getInterpolatedPropertiesAt(wrappedT);
+            if (!props) continue;
+            
+            const clamped = this.clampAbstractPoint(props.u, props.v, props.lightness);
+            const x = clamped.u * this.state.transform.scale + this.state.transform.offsetX;
+            const y = clamped.v * this.state.transform.scale + this.state.transform.offsetY;
+            
+            const isExactlyOnPlane = Math.abs(props.lightness - this.state.viewLightness) < 1e-10;
+            pathPoints.push({ x, y, isOnPlane: isExactlyOnPlane });
         }
-    });
-    
-    ctx.restore(); // Remove clipping
-}
+        
+        if (pathPoints.length < 2) return;
+        
+        const allOnPlane = pathPoints.every(p => p.isOnPlane);
+        
+        ctx.save();
+        ctx.strokeStyle = 'black';
+        ctx.lineWidth = C.LINE_WIDTH_DEFAULT;
+        ctx.globalAlpha = allOnPlane ? 0.7 : 0.4;
+        
+        if (!allOnPlane) {
+            ctx.setLineDash([4, 4]);
+        }
+        
+        ctx.beginPath();
+        ctx.moveTo(pathPoints[0].x, pathPoints[0].y);
+        for (let i = 1; i < pathPoints.length; i++) {
+            ctx.lineTo(pathPoints[i].x, pathPoints[i].y);
+        }
+        ctx.stroke();
+        
+        ctx.setLineDash([]);
+        ctx.restore();
+    }
     
         drawLightnessElements() {
     const canvas = this.elements.interactiveCanvases['lightness'];
@@ -2080,31 +2133,20 @@ findLightnessIntersection(p1, p2, targetLightness) {
     return (finalT > 0.01 && finalT < 0.99) ? finalT : null;
 }
 
-drawConnectingLine(ctx, type) {
-    if (this.state.points.length === 0) return;
+    drawConnectingLine(ctx, type) {
+        if (this.state.points.length === 0) return;
 
-    ctx.save();
-    ctx.lineWidth = C.LINE_WIDTH_DEFAULT;
-    ctx.globalAlpha = 0.7;
+        ctx.save();
+        ctx.lineWidth = C.LINE_WIDTH_DEFAULT;
+        ctx.globalAlpha = 0.7;
 
-    if (type === 'hs') {
-        const tolerance = 0.02; // Tolerance for "on current plane"
-        
-        for (let i = 0; i < this.state.points.length - 1; i++) {
-            const p1 = this.state.points[i];
-            const p2 = this.state.points[i + 1];
-            
-            const effectiveOrder = Math.max(p1.order, p2.order);
-            if (effectiveOrder === 0) continue;
-            
-            this.drawHSSegment(ctx, p1, p2, effectiveOrder, tolerance);
+        if (type === 'hs') {
+            // HS line drawing is now handled directly in drawHSElements
+            ctx.restore();
+            return;
         }
         
-        // Draw intersection dots where lines cross the current lightness plane
-        this.drawLightnessIntersectionDots(ctx, tolerance);
-        
-    } else {
-        // Existing slider drawing code remains the same
+        // Handle lightness and alpha sliders
         const glyphMargin = Math.ceil(C.NODE_RADIUS * 2.2);
         const tickMargin = Math.ceil(C.CHECKERBOARD_SIZE / 2);
         const totalMargin = glyphMargin + tickMargin;
@@ -2156,10 +2198,8 @@ drawConnectingLine(ctx, type) {
         
         ctx.strokeStyle = gradient;
         ctx.stroke();
+        ctx.restore();
     }
-    
-    ctx.restore();
-}
 
 drawTicks(ctx, type) {
     // Don't draw ticks if the editor is not visible
@@ -2428,79 +2468,80 @@ createKaTeXLabel(expression, x, y, position, canvas) {
             };
         }
     
-        updateUIReadouts() {
-   const lastSelectedPoint = this.getLastSelectedPoint();
-   const activeElement = document.activeElement;
+    updateUIReadouts() {
+        const lastSelectedPoint = this.getLastSelectedPoint();
+        const activeElement = document.activeElement;
 
-   const isRgb = this.state.colorSpace === 'RGB_CUBE';
-   this.elements.rgbInputsContainer.classList.toggle('hidden', !isRgb);
-   this.elements.hslInputsContainer.classList.toggle('hidden', isRgb);
+        const isRgb = this.state.colorSpace === 'RGB_CUBE';
+        this.elements.rgbInputsContainer.classList.toggle('hidden', !isRgb);
+        this.elements.hslInputsContainer.classList.toggle('hidden', isRgb);
 
-   // Always show current view lightness and alpha, even when no points selected
-   if (activeElement !== this.elements.lightnessInput) {
-       this.elements.lightnessInput.value = this.state.viewLightness.toFixed(2);
-   }
-   if (activeElement !== this.elements.alphaInput) {
-       this.elements.alphaInput.value = this.state.viewAlpha.toFixed(2);
-   }
-   if (activeElement !== this.elements.positionInput) {
-       this.elements.positionInput.value = lastSelectedPoint ? lastSelectedPoint.pos.toFixed(2) : '--';
-   }
+        if (activeElement !== this.elements.lightnessInput) {
+            this.elements.lightnessInput.value = this.state.viewLightness.toFixed(2);
+        }
+        if (activeElement !== this.elements.alphaInput) {
+            this.elements.alphaInput.value = this.state.viewAlpha.toFixed(2);
+        }
+        if (activeElement !== this.elements.positionInput) {
+            this.elements.positionInput.value = lastSelectedPoint ? lastSelectedPoint.pos.toFixed(2) : '--';
+        }
 
-   // Update interpolation buttons
-   if (lastSelectedPoint) {
-       this.elements.constantButton.classList.toggle('active', lastSelectedPoint.order === 0);
-       this.elements.linearButton.classList.toggle('active', lastSelectedPoint.order === 1);
-       this.elements.cubicButton.classList.toggle('active', lastSelectedPoint.order === 3);
-   } else {
-       this.elements.constantButton.classList.remove('active');
-       this.elements.linearButton.classList.remove('active');
-       this.elements.cubicButton.classList.remove('active');
-   }
+        if (lastSelectedPoint) {
+            this.elements.constantButton.classList.toggle('active', lastSelectedPoint.order === 0);
+            this.elements.linearButton.classList.toggle('active', lastSelectedPoint.order === 1);
+            this.elements.cubicButton.classList.toggle('active', lastSelectedPoint.order === 3);
+        } else {
+            this.elements.constantButton.classList.remove('active');
+            this.elements.linearButton.classList.remove('active');
+            this.elements.cubicButton.classList.remove('active');
+        }
 
-   const isEditingColor = [
-       this.elements.rgbRInput, this.elements.rgbGInput, this.elements.rgbBInput,
-       this.elements.hslHInput, this.elements.hslSInput
-   ].includes(activeElement);
+        this.elements.cycleButton.classList.toggle('active', this.state.isCyclic);
 
-   if (!lastSelectedPoint) {
-       if (!isEditingColor) {
-           this.elements.rgbRInput.value = '';
-           this.elements.rgbGInput.value = '';
-           this.elements.rgbBInput.value = '';
-           this.elements.hslHInput.value = '';
-           this.elements.hslSInput.value = '';
-       }
-       this.elements.selectButton.disabled = this.state.points.length === 0;
-       this.elements.reverseButton.disabled = this.state.points.length === 0;
-       this.drawColormapPreview();
-       this.drawSelectedColorPreview();
-       return;
-   }
+        const isEditingColor = [
+            this.elements.rgbRInput, this.elements.rgbGInput, this.elements.rgbBInput,
+            this.elements.hslHInput, this.elements.hslSInput
+        ].includes(activeElement);
 
-   this.elements.selectButton.disabled = false;
-   this.elements.reverseButton.disabled = false;
+        if (!lastSelectedPoint) {
+            if (!isEditingColor) {
+                this.elements.rgbRInput.value = '';
+                this.elements.rgbGInput.value = '';
+                this.elements.rgbBInput.value = '';
+                this.elements.hslHInput.value = '';
+                this.elements.hslSInput.value = '';
+            }
+            this.elements.selectButton.disabled = this.state.points.length === 0;
+            this.elements.reverseButton.disabled = this.state.points.length === 0;
+            this.elements.cycleButton.disabled = this.state.points.length < 2;
+            this.drawColormapPreview();
+            this.drawSelectedColorPreview();
+            return;
+        }
 
-   if (!isEditingColor) {
-       const { lightness, hsPos } = lastSelectedPoint;
-       const color = this.abstractToRgb(hsPos.u, hsPos.v, lightness);
+        this.elements.selectButton.disabled = false;
+        this.elements.reverseButton.disabled = false;
+        this.elements.cycleButton.disabled = this.state.points.length < 2;
 
-       if (isRgb) {
-           const { r, g, b } = this.clampColor(color);
-           this.elements.rgbRInput.value = r;
-           this.elements.rgbGInput.value = g;
-           this.elements.rgbBInput.value = b;
-       } else {
-           const hsl = this.rgbToHsl(color.r, color.g, color.b);
-           this.elements.hslHInput.value = hsl.h.toFixed(2);
-           this.elements.hslSInput.value = hsl.s.toFixed(2);
-           // Don't show lightness in HSL since it's already shown above
-       }
-   }
+        if (!isEditingColor) {
+            const { lightness, hsPos } = lastSelectedPoint;
+            const color = this.abstractToRgb(hsPos.u, hsPos.v, lightness);
 
-   this.drawColormapPreview();
-   this.drawSelectedColorPreview();
-}
+            if (isRgb) {
+                const { r, g, b } = this.clampColor(color);
+                this.elements.rgbRInput.value = r;
+                this.elements.rgbGInput.value = g;
+                this.elements.rgbBInput.value = b;
+            } else {
+                const hsl = this.rgbToHsl(color.r, color.g, color.b);
+                this.elements.hslHInput.value = hsl.h.toFixed(2);
+                this.elements.hslSInput.value = hsl.s.toFixed(2);
+            }
+        }
+
+        this.drawColormapPreview();
+        this.drawSelectedColorPreview();
+    }
         
         drawSelectedColorPreview() {
    const canvas = this.elements.selectedColorPreviewCanvas;
@@ -2526,28 +2567,249 @@ createKaTeXLabel(expression, x, y, position, canvas) {
        ctx.fillRect(0, 0, canvas.width, canvas.height);
    }
 }
-        drawColormapPreview() {
-            const previewCtx = this.elements.colormapPreviewCanvas.getContext('2d');
-            const width = this.elements.colormapPreviewCanvas.width;
-            const height = this.elements.colormapPreviewCanvas.height;
-    
-            this.drawCheckerboard(previewCtx);
-    
-            if (this.state.points.length === 0) return;
-    
-            for (let i = 0; i < width; i++) {
-                const t = i / (width - 1);
+
+    drawConnectingLine(ctx, type) {
+        if (this.state.points.length === 0) return;
+
+        ctx.save();
+        ctx.lineWidth = C.LINE_WIDTH_DEFAULT;
+        ctx.globalAlpha = 0.7;
+
+        if (type === 'hs') {
+            const tolerance = 0.02;
+            
+            for (let i = 0; i < this.state.points.length - 1; i++) {
+                const p1 = this.state.points[i];
+                const p2 = this.state.points[i + 1];
+                
+                const effectiveOrder = Math.max(p1.order, p2.order);
+                if (effectiveOrder === 0) continue;
+                
+                this.drawHSSegment(ctx, p1, p2, effectiveOrder, tolerance);
+            }
+            
+            if (this.state.isCyclic && this.state.points.length >= 2) {
+                const lastPoint = this.state.points[this.state.points.length - 1];
+                const firstPoint = this.state.points[0];
+                const effectiveOrder = Math.max(lastPoint.order, firstPoint.order);
+                if (effectiveOrder !== 0) {
+                    this.drawHSSegment(ctx, lastPoint, firstPoint, effectiveOrder, tolerance);
+                }
+            }
+            
+            this.drawLightnessIntersectionDots(ctx, tolerance);
+            
+        } else {
+            const glyphMargin = Math.ceil(C.NODE_RADIUS * 2.2);
+            const tickMargin = Math.ceil(C.CHECKERBOARD_SIZE / 2);
+            const totalMargin = glyphMargin + tickMargin;
+            
+            const validLeft = totalMargin;
+            const validRight = ctx.canvas.width - glyphMargin;
+            const validBottom = ctx.canvas.height - glyphMargin;
+            const validWidth = validRight - validLeft;
+            const validHeight = validBottom - totalMargin;
+            
+            if (validWidth <= 0) {
+                ctx.restore();
+                return;
+            }
+            
+            const gradient = ctx.createLinearGradient(validLeft, 0, validRight, 0);
+            const gradientSteps = Math.min(256, validWidth);
+            
+            for (let i = 0; i <= gradientSteps; i++) {
+                const t = i / gradientSteps;
                 const props = this.getInterpolatedPropertiesAt(t);
                 if (!props) continue;
-    
+                
                 const clamped = this.clampAbstractPoint(props.u, props.v, props.lightness);
                 const color = this.abstractToRgb(clamped.u, clamped.v, props.lightness);
-                const { r, g, b } = this.clampColor(color);
-    
-                previewCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${props.alpha})`;
-                previewCtx.fillRect(i, 0, 1, height);
+                const {r, g, b} = this.clampColor(color);
+                
+                gradient.addColorStop(t, `rgba(${r}, ${g}, ${b}, ${props.alpha})`);
+            }
+            
+            ctx.beginPath();
+            const pathSteps = Math.max(2, validWidth / 2);
+            
+            for (let i = 0; i <= pathSteps; i++) {
+                const t = i / pathSteps;
+                const props = this.getInterpolatedPropertiesAt(t);
+                if (!props) continue;
+                
+                const x = validLeft + t * validWidth;
+                const value = type === 'lightness' ? props.lightness : props.alpha;
+                const y = validBottom - value * validHeight;
+                
+                if (i === 0) {
+                    ctx.moveTo(x, y);
+                } else {
+                    ctx.lineTo(x, y);
+                }
+            }
+            
+            ctx.strokeStyle = gradient;
+            ctx.stroke();
+        }
+        
+        ctx.restore();
+    }
+
+
+    wrapPositionCyclic(pos) {
+        if (!this.state.isCyclic) {
+            return Math.max(0, Math.min(1, pos));
+        }
+        return ((pos % 1) + 1) % 1;
+    }    
+
+    drawColormapPreview() {
+        const previewCtx = this.elements.colormapPreviewCanvas.getContext('2d');
+        const width = this.elements.colormapPreviewCanvas.width;
+        const height = this.elements.colormapPreviewCanvas.height;
+
+        this.drawCheckerboard(previewCtx);
+
+        if (this.state.points.length === 0) return;
+
+        for (let i = 0; i < width; i++) {
+            const t = i / (width - 1);
+            const props = this.getInterpolatedPropertiesAt(t);
+            if (!props) continue;
+
+            const clamped = this.clampAbstractPoint(props.u, props.v, props.lightness);
+            const color = this.abstractToRgb(clamped.u, clamped.v, props.lightness);
+            const { r, g, b } = this.clampColor(color);
+
+            previewCtx.fillStyle = `rgba(${r}, ${g}, ${b}, ${props.alpha})`;
+            previewCtx.fillRect(i, 0, 1, height);
+        }
+    }
+
+    getInterpolatedPropertiesAt(t) {
+        if (this.state.points.length === 0) return null;
+        if (this.state.points.length === 1) {
+            const { hsPos, lightness, alpha, order } = this.state.points[0];
+            return { 
+                u: hsPos.u, 
+                v: hsPos.v, 
+                lightness: Math.max(0, Math.min(1, lightness)), 
+                alpha: Math.max(0, Math.min(1, alpha)), 
+                order 
+            };
+        }
+
+        if (this.state.isCyclic) {
+            t = ((t % 1) + 1) % 1;
+        }
+
+        let segmentIndex = -1;
+        let p1, p2;
+        
+        if (t <= this.state.points[0].pos) {
+            if (this.state.isCyclic) {
+                p1 = this.state.points[this.state.points.length - 1];
+                p2 = this.state.points[0];
+                const segmentDuration = 1 - p1.pos + p2.pos;
+                if (segmentDuration < 1e-6) {
+                    const { hsPos, lightness, alpha, order } = p2;
+                    return { u: hsPos.u, v: hsPos.v, lightness: Math.max(0, Math.min(1, lightness)), alpha: Math.max(0, Math.min(1, alpha)), order };
+                }
+                const tLocal = (t + 1 - p1.pos) / segmentDuration;
+                segmentIndex = this.state.points.length - 1;
+            } else {
+                const { hsPos, lightness, alpha, order } = this.state.points[0];
+                return { u: hsPos.u, v: hsPos.v, lightness: Math.max(0, Math.min(1, lightness)), alpha: Math.max(0, Math.min(1, alpha)), order };
+            }
+        } else if (t >= this.state.points[this.state.points.length - 1].pos) {
+            if (this.state.isCyclic) {
+                p1 = this.state.points[this.state.points.length - 1];
+                p2 = this.state.points[0];
+                const segmentDuration = 1 - p1.pos + p2.pos;
+                if (segmentDuration < 1e-6) {
+                    const { hsPos, lightness, alpha, order } = p1;
+                    return { u: hsPos.u, v: hsPos.v, lightness: Math.max(0, Math.min(1, lightness)), alpha: Math.max(0, Math.min(1, alpha)), order };
+                }
+                const tLocal = (t - p1.pos) / segmentDuration;
+                segmentIndex = this.state.points.length - 1;
+            } else {
+                const { hsPos, lightness, alpha, order } = this.state.points[this.state.points.length - 1];
+                return { u: hsPos.u, v: hsPos.v, lightness: Math.max(0, Math.min(1, lightness)), alpha: Math.max(0, Math.min(1, alpha)), order };
+            }
+        } else {
+            for (let i = 0; i < this.state.points.length - 1; i++) {
+                if (t >= this.state.points[i].pos && t <= this.state.points[i + 1].pos) {
+                    segmentIndex = i;
+                    p1 = this.state.points[i];
+                    p2 = this.state.points[i + 1];
+                    break;
+                }
             }
         }
+
+        if (segmentIndex === -1 || !p1 || !p2) return null;
+
+        const segmentDuration = p2.pos - p1.pos + (this.state.isCyclic && segmentIndex === this.state.points.length - 1 ? 1 : 0);
+        if (segmentDuration < 1e-6) {
+            const { hsPos, lightness, alpha } = p1;
+            return { u: hsPos.u, v: hsPos.v, lightness: Math.max(0, Math.min(1, lightness)), alpha: Math.max(0, Math.min(1, alpha)), order: p1.order };
+        }
+
+        let tLocal;
+        if (this.state.isCyclic && segmentIndex === this.state.points.length - 1) {
+            tLocal = t >= p1.pos ? (t - p1.pos) / segmentDuration : (t + 1 - p1.pos) / segmentDuration;
+        } else {
+            tLocal = (t - p1.pos) / segmentDuration;
+        }
+
+        const effectiveOrder = Math.max(p1.order, p2.order);
+        
+        if (effectiveOrder === 0) {
+            if (tLocal < 0.5) {
+                const { hsPos, lightness, alpha } = p1;
+                return { u: hsPos.u, v: hsPos.v, lightness: Math.max(0, Math.min(1, lightness)), alpha: Math.max(0, Math.min(1, alpha)), order: 0 };
+            } else {
+                const { hsPos, lightness, alpha } = p2;
+                return { u: hsPos.u, v: hsPos.v, lightness: Math.max(0, Math.min(1, lightness)), alpha: Math.max(0, Math.min(1, alpha)), order: 0 };
+            }
+        }
+
+        if (effectiveOrder === 1) {
+            return {
+                u: p1.hsPos.u + (p2.hsPos.u - p1.hsPos.u) * tLocal,
+                v: p1.hsPos.v + (p2.hsPos.v - p1.hsPos.v) * tLocal,
+                lightness: Math.max(0, Math.min(1, p1.lightness + (p2.lightness - p1.lightness) * tLocal)),
+                alpha: Math.max(0, Math.min(1, p1.alpha + (p2.alpha - p1.alpha) * tLocal)),
+                order: 1
+            };
+        }
+
+        if (effectiveOrder === 3) {
+            const result = this.evaluateCubicSpline(segmentIndex, tLocal);
+            return result ? {
+                u: result.u,
+                v: result.v,
+                lightness: Math.max(0, Math.min(1, result.lightness)),
+                alpha: Math.max(0, Math.min(1, result.alpha)),
+                order: 2
+            } : {
+                u: p1.hsPos.u + (p2.hsPos.u - p1.hsPos.u) * tLocal,
+                v: p1.hsPos.v + (p2.hsPos.v - p1.hsPos.v) * tLocal,
+                lightness: Math.max(0, Math.min(1, p1.lightness + (p2.lightness - p1.lightness) * tLocal)),
+                alpha: Math.max(0, Math.min(1, p1.alpha + (p2.alpha - p1.alpha) * tLocal)),
+                order: 1
+            };
+        }
+
+        return {
+            u: p1.hsPos.u + (p2.hsPos.u - p1.hsPos.u) * tLocal,
+            v: p1.hsPos.v + (p2.hsPos.v - p1.hsPos.v) * tLocal,
+            lightness: Math.max(0, Math.min(1, p1.lightness + (p2.lightness - p1.lightness) * tLocal)),
+            alpha: Math.max(0, Math.min(1, p1.alpha + (p2.alpha - p1.alpha) * tLocal)),
+            order: 1
+        };
+    }
     
         abstractToRgb(u, v, lightness) {
             if (this.state.colorSpace === 'HSL_DI_CONE') {
@@ -3087,74 +3349,86 @@ adjustPointForNewLightness(point, oldLightness) {
     }
 }
     
-        handleSliderPointDrag(point, x, y, canvas, dragType) {
-    const { offsets } = this.state.activeDrag;
-    const glyphMargin = Math.ceil(C.NODE_RADIUS * 2.2);
-    const tickMargin = Math.ceil(C.CHECKERBOARD_SIZE / 2);
-    const totalMargin = glyphMargin + tickMargin;
-    
-    // Constrain both x and y to margin bounds
-    const minX = totalMargin;
-    const maxX = canvas.width - glyphMargin;
-    const minY = totalMargin;
-    const maxY = canvas.height - glyphMargin;
-    const constrainedX = Math.max(minX, Math.min(maxX, x));
-    const constrainedY = Math.max(minY, Math.min(maxY, y));
+    handleSliderPointDrag(point, x, y, canvas, dragType) {
+        const { offsets } = this.state.activeDrag;
+        const glyphMargin = Math.ceil(C.NODE_RADIUS * 2.2);
+        const tickMargin = Math.ceil(C.CHECKERBOARD_SIZE / 2);
+        const totalMargin = glyphMargin + tickMargin;
+        
+        const minX = totalMargin;
+        const maxX = canvas.width - glyphMargin;
+        const minY = totalMargin;
+        const maxY = canvas.height - glyphMargin;
+        let constrainedX = Math.max(minX, Math.min(maxX, x));
+        const constrainedY = Math.max(minY, Math.min(maxY, y));
 
-    const snappedY = this.findSnapPosition(constrainedY, canvas.height, dragType, point.id);
-    
-    // Convert coordinates to values, accounting for margins
-    const validWidth = canvas.width - totalMargin - glyphMargin;
-    const validHeight = canvas.height - totalMargin - glyphMargin;
-    const normalizedX = (constrainedX - totalMargin) / validWidth;
-    const normalizedY = (snappedY - totalMargin) / validHeight;
-    const primaryValue = Math.max(0, Math.min(1, 1 - normalizedY));
-    const primaryPos = Math.max(0, Math.min(1, normalizedX));
+        const snappedY = this.findSnapPosition(constrainedY, canvas.height, dragType, point.id);
+        
+        const validWidth = canvas.width - totalMargin - glyphMargin;
+        const validHeight = canvas.height - totalMargin - glyphMargin;
+        const normalizedY = (snappedY - totalMargin) / validHeight;
+        const primaryValue = Math.max(0, Math.min(1, 1 - normalizedY));
+        
+        let normalizedX = (constrainedX - totalMargin) / validWidth;
+        let primaryPos = normalizedX;
 
-    let minPossibleValue = 0;
-    let maxPossibleValue = 1;
-    let minPossiblePos = 0;
-    let maxPossiblePos = 1;
-
-    for (const p of this.state.points) {
-        if (offsets.has(p.id)) {
-            const offset = offsets.get(p.id);
-            const offsetValue = offset[dragType];
-            minPossibleValue = Math.max(minPossibleValue, -offsetValue);
-            maxPossibleValue = Math.min(maxPossibleValue, 1 - offsetValue);
-            const offsetPos = offset.pos;
-            minPossiblePos = Math.max(minPossiblePos, -offsetPos);
-            maxPossiblePos = Math.min(maxPossiblePos, 1 - offsetPos);
+        if (this.state.isCyclic) {
+            if (normalizedX < 0) {
+                primaryPos = 1 + normalizedX;
+            } else if (normalizedX > 1) {
+                primaryPos = normalizedX - 1;
+            }
+            primaryPos = this.wrapPositionCyclic(primaryPos);
+        } else {
+            primaryPos = Math.max(0, Math.min(1, normalizedX));
         }
-    }
 
-    const clampedPrimaryValue = Math.max(minPossibleValue, Math.min(maxPossibleValue, primaryValue));
-    const clampedPrimaryPos = Math.max(minPossiblePos, Math.min(maxPossiblePos, primaryPos));
+        let minPossibleValue = 0;
+        let maxPossibleValue = 1;
+        let minPossiblePos = this.state.isCyclic ? -Infinity : 0;
+        let maxPossiblePos = this.state.isCyclic ? Infinity : 1;
 
-    for (const p of this.state.points) {
-        if (offsets.has(p.id)) {
-            const offset = offsets.get(p.id);
-            const newValue = clampedPrimaryValue + offset[dragType];
-            const newPos = clampedPrimaryPos + offset.pos;
-            
-            p.pos = newPos;
-            
-            if (dragType === 'lightness') {
-                const oldLightness = p.lightness;
-                p.lightness = newValue;
-                
-                // When lightness changes, we need to smoothly adjust the HS position
-                // to stay within the new gamut boundary
-                this.adjustPointForNewLightness(p, oldLightness);
-                
-                this.state.viewLightness = p.lightness;
-            } else {
-                p.alpha = newValue;
-                this.state.viewAlpha = p.alpha;
+        if (!this.state.isCyclic) {
+            for (const p of this.state.points) {
+                if (offsets.has(p.id)) {
+                    const offset = offsets.get(p.id);
+                    const offsetValue = offset[dragType];
+                    minPossibleValue = Math.max(minPossibleValue, -offsetValue);
+                    maxPossibleValue = Math.min(maxPossibleValue, 1 - offsetValue);
+                    const offsetPos = offset.pos;
+                    minPossiblePos = Math.max(minPossiblePos, -offsetPos);
+                    maxPossiblePos = Math.min(maxPossiblePos, 1 - offsetPos);
+                }
             }
         }
-    }
 
-    this.sortPoints();
-}
+        const clampedPrimaryValue = Math.max(minPossibleValue, Math.min(maxPossibleValue, primaryValue));
+        const clampedPrimaryPos = this.state.isCyclic ? primaryPos : Math.max(minPossiblePos, Math.min(maxPossiblePos, primaryPos));
+
+        for (const p of this.state.points) {
+            if (offsets.has(p.id)) {
+                const offset = offsets.get(p.id);
+                const newValue = clampedPrimaryValue + offset[dragType];
+                let newPos = clampedPrimaryPos + offset.pos;
+                
+                if (this.state.isCyclic) {
+                    newPos = this.wrapPositionCyclic(newPos);
+                }
+                
+                p.pos = newPos;
+                
+                if (dragType === 'lightness') {
+                    const oldLightness = p.lightness;
+                    p.lightness = newValue;
+                    this.adjustPointForNewLightness(p, oldLightness);
+                    this.state.viewLightness = p.lightness;
+                } else {
+                    p.alpha = newValue;
+                    this.state.viewAlpha = p.alpha;
+                }
+            }
+        }
+
+        this.sortPoints();
+    }
 }
