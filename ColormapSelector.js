@@ -109,33 +109,28 @@ export default class ColormapSelector {
             // We received an initial state to load
             let pointsToLoad = JSON.parse(JSON.stringify(initialState.points));
             
-            // If there's only one point, duplicate it to satisfy the renderer
+            // If there's only one point, duplicate it so the editor can draw a solid bar
             if (pointsToLoad.length === 1) {
                 const singlePoint = pointsToLoad[0];
-                singlePoint.pos = 0; // Set first point to the start
-                pointsToLoad.push({
-                    ...singlePoint,
-                    id: `clone_${singlePoint.id}`, // Give the clone a unique ID
-                    pos: 1 // Set second point to the end
-                });
+                singlePoint.pos = 0;
+                pointsToLoad.push({ ...singlePoint, id: `clone_${singlePoint.id}`, pos: 1 });
             }
             
-            this.state.points = pointsToLoad;
-            this.sortPoints();
-            if (this.state.points.length > 0) {
-                this.state.lastSelectedPointId = this.state.points[0].id;
-                this.state.selectedPointIds.add(this.state.points[0].id);
-            }
-        } else {
-            // If no initial state, create a default black-to-white gradient
-            const id1 = `p_${Math.random().toString(36).substr(2, 9)}`;
-            const id2 = `p_${Math.random().toString(36).substr(2, 9)}`;
-            this.state.points = [
-                { id: id1, pos: 0, color: [0, 0, 0], alpha: 1.0 },
-                { id: id2, pos: 1, color: [255, 255, 255], alpha: 1.0 }
-            ];
-            this.state.lastSelectedPointId = id1;
-            this.state.selectedPointIds.add(id1);
+            // Use the class's own internal method to create fully valid points
+            this.state.points = pointsToLoad.map(p => {
+                const rgb = p.color; // color is [r, g, b] from 0-255
+                const alpha = p.alpha !== undefined ? p.alpha : 1.0;
+                // createPointFromRgb expects colors in the 0-1 range
+                return this.createPointFromRgb(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255, alpha, p.pos, p.order || 1);
+            });
+        } 
+        // By removing the `else` block, it will now default to the empty state
+        // established by the reset logic above.
+        
+        this.sortPoints();
+        if (this.state.points.length > 0) {
+            this.state.lastSelectedPointId = this.state.points[0].id;
+            this.state.selectedPointIds.add(this.state.points[0].id);
         }
 
         this.wrapper.style.display = 'grid';
