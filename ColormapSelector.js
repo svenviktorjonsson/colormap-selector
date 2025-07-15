@@ -87,19 +87,19 @@ export default class ColormapSelector {
     show(x, y, initialState = null) {
         if (!this.wrapper) return;
 
-        // Correctly handle positioning
+        // --- Corrected Positioning Logic ---
         if (x !== undefined && y !== undefined) {
-            // A position was provided (e.g., for editing), so place the editor there.
+            // A position was provided, so place the editor there.
+            // Clear bottom/right to prevent CSS conflicts with top/left.
             this.wrapper.style.left = `${x}px`;
             this.wrapper.style.top = `${y}px`;
-            this.wrapper.style.bottom = '';
-            this.wrapper.style.right = '';
+            this.wrapper.style.bottom = null;
+            this.wrapper.style.right = null;
         } else {
-            // No position was provided, so revert to the default CSS position.
-            this.wrapper.style.left = '';
-            this.wrapper.style.top = '';
-            this.wrapper.style.bottom = '0.5rem';
-            this.wrapper.style.right = '0.5rem';
+            // No position was provided. Revert to the default CSS position
+            // by clearing any inline top/left styles from previous calls.
+            this.wrapper.style.left = null;
+            this.wrapper.style.top = null;
         }
 
         // Reset the state to defaults before loading new data
@@ -115,14 +115,26 @@ export default class ColormapSelector {
         this.state.loadedColormapType = null;
         
         if (initialState && initialState.type === 'colormap' && initialState.points) {
+            // We received an initial state to load
+            let pointsToLoad = JSON.parse(JSON.stringify(initialState.points));
+            
+            // For solid colors, create a two-point flat gradient for the editor to render
+            if (pointsToLoad.length === 1) {
+                const singlePoint = pointsToLoad[0];
+                singlePoint.pos = 0;
+                pointsToLoad.push({ ...singlePoint, id: `clone_${singlePoint.id}`, pos: 1 });
+            }
+            
             // Use the class's own internal method to create fully valid points
-            this.state.points = initialState.points.map(p => {
-                const rgb = p.color; // color is [r, g, b] from 0-255
+            this.state.points = pointsToLoad.map(p => {
+                const rgb = p.color;
                 const alpha = p.alpha !== undefined ? p.alpha : 1.0;
-                const pos = p.points?.length === 1 ? 0.5 : p.pos; // Center single points
-                // createPointFromRgb expects colors in the 0-1 range
-                return this.createPointFromRgb(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255, alpha, pos, p.order || 1);
+                return this.createPointFromRgb(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255, alpha, p.pos, p.order || 1);
             });
+            
+        } else {
+            // If no initial state is provided, the editor will start empty.
+            this.state.points = [];
         }
         
         this.sortPoints();
