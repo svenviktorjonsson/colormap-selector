@@ -87,17 +87,13 @@ export default class ColormapSelector {
     show(x, y, initialState = null) {
         if (!this.wrapper) return;
 
-        // --- Corrected Positioning Logic ---
+        // Positioning logic
         if (x !== undefined && y !== undefined) {
-            // A position was provided, so place the editor there.
-            // Clear bottom/right to prevent CSS conflicts with top/left.
             this.wrapper.style.left = `${x}px`;
             this.wrapper.style.top = `${y}px`;
             this.wrapper.style.bottom = null;
             this.wrapper.style.right = null;
         } else {
-            // No position was provided. Revert to the default CSS position
-            // by clearing any inline top/left styles from previous calls.
             this.wrapper.style.left = null;
             this.wrapper.style.top = null;
         }
@@ -115,20 +111,18 @@ export default class ColormapSelector {
         this.state.loadedColormapType = null;
         
         if (initialState && initialState.type === 'colormap' && initialState.points) {
-            // We received an initial state to load
             let pointsToLoad = JSON.parse(JSON.stringify(initialState.points));
             
-            // For solid colors, create a two-point flat gradient for the editor to render
+            // If it's a single point, ensure its position is 0.5
             if (pointsToLoad.length === 1) {
-                const singlePoint = pointsToLoad[0];
-                singlePoint.pos = 0;
-                pointsToLoad.push({ ...singlePoint, id: `clone_${singlePoint.id}`, pos: 1 });
+                pointsToLoad[0].pos = 0.5;
             }
             
             // Use the class's own internal method to create fully valid points
             this.state.points = pointsToLoad.map(p => {
                 const rgb = p.color;
                 const alpha = p.alpha !== undefined ? p.alpha : 1.0;
+                // createPointFromRgb expects colors in the 0-1 range
                 return this.createPointFromRgb(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255, alpha, p.pos, p.order || 1);
             });
             
