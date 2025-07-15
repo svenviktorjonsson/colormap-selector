@@ -146,7 +146,6 @@ export default class ColormapSelector {
         });
     }
 
-
     createSnapshot() {
         return {
             points: JSON.parse(JSON.stringify(this.state.points)),
