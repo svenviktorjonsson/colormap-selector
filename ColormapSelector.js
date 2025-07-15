@@ -87,10 +87,21 @@ export default class ColormapSelector {
     show(x, y, initialState = null) {
         if (!this.wrapper) return;
 
-        // Position the editor near the click
+        // Positioning logic
         if (x !== undefined && y !== undefined) {
+            // A position was provided, so place the editor there.
+            // Clear bottom/right to avoid CSS conflicts.
             this.wrapper.style.left = `${x}px`;
             this.wrapper.style.top = `${y}px`;
+            this.wrapper.style.bottom = '';
+            this.wrapper.style.right = '';
+        } else {
+            // No position was provided, so revert to the default CSS position.
+            // Clear explicit positions so the CSS `bottom` and `right` properties can take effect.
+            this.wrapper.style.left = '';
+            this.wrapper.style.top = '';
+            this.wrapper.style.bottom = '0.5rem';
+            this.wrapper.style.right = '0.5rem';
         }
 
         // Reset the state to defaults before loading new data
@@ -106,26 +117,24 @@ export default class ColormapSelector {
         this.state.loadedColormapType = null;
         
         if (initialState && initialState.type === 'colormap' && initialState.points) {
-            // We received an initial state to load
             let pointsToLoad = JSON.parse(JSON.stringify(initialState.points));
             
-            // If there's only one point, duplicate it so the editor can draw a solid bar
             if (pointsToLoad.length === 1) {
                 const singlePoint = pointsToLoad[0];
                 singlePoint.pos = 0;
                 pointsToLoad.push({ ...singlePoint, id: `clone_${singlePoint.id}`, pos: 1 });
             }
             
-            // Use the class's own internal method to create fully valid points
             this.state.points = pointsToLoad.map(p => {
-                const rgb = p.color; // color is [r, g, b] from 0-255
+                const rgb = p.color;
                 const alpha = p.alpha !== undefined ? p.alpha : 1.0;
-                // createPointFromRgb expects colors in the 0-1 range
                 return this.createPointFromRgb(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255, alpha, p.pos, p.order || 1);
             });
-        } 
-        // By removing the `else` block, it will now default to the empty state
-        // established by the reset logic above.
+            
+        } else {
+            // Intentionally leave empty for a clean start
+            this.state.points = [];
+        }
         
         this.sortPoints();
         if (this.state.points.length > 0) {
