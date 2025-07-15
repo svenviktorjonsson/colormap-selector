@@ -85,66 +85,86 @@ export default class ColormapSelector {
 
 
     show(x, y, initialState = null) {
-        if (!this.wrapper) return;
+    if (!this.wrapper) return;
 
-        // Positioning logic
-        if (x !== undefined && y !== undefined) {
-            this.wrapper.style.left = `${x}px`;
-            this.wrapper.style.top = `${y}px`;
-            this.wrapper.style.bottom = null;
-            this.wrapper.style.right = null;
-        } else {
-            this.wrapper.style.left = null;
-            this.wrapper.style.top = null;
-        }
-
-        // Reset the state to defaults before loading new data
-        this.state.points = [];
-        this.state.selectedPointIds.clear();
-        this.state.lastSelectedPointId = null;
-        this.state.viewLightness = 0.5;
-        this.state.viewAlpha = 1.0;
-        this.state.undoStack = [];
-        this.state.redoStack = [];
-        this.state.isCyclic = false;
-        this.state.loadedColormapName = null;
-        this.state.loadedColormapType = null;
-        
-        if (initialState && initialState.type === 'colormap' && initialState.points) {
-            let pointsToLoad = JSON.parse(JSON.stringify(initialState.points));
-            
-            // If it's a single point, ensure its position is 0.5
-            if (pointsToLoad.length === 1) {
-                pointsToLoad[0].pos = 0.5;
-            }
-            
-            // Use the class's own internal method to create fully valid points
-            this.state.points = pointsToLoad.map(p => {
-                const rgb = p.color;
-                const alpha = p.alpha !== undefined ? p.alpha : 1.0;
-                // createPointFromRgb expects colors in the 0-1 range
-                return this.createPointFromRgb(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255, alpha, p.pos, p.order || 1);
-            });
-            
-        } else {
-            // If no initial state is provided, the editor will start empty.
-            this.state.points = [];
-        }
-        
-        this.sortPoints();
-        if (this.state.points.length > 0) {
-            this.state.lastSelectedPointId = this.state.points[0].id;
-            this.state.selectedPointIds.add(this.state.points[0].id);
-        }
-
-        this.wrapper.style.display = 'grid';
-        this.setDirty(false);
-
-        requestAnimationFrame(() => {
-            this.setupCanvases();
-            this.drawAll();
-        });
+    // Positioning logic
+    if (x !== undefined && y !== undefined) {
+        this.wrapper.style.left = `${x}px`;
+        this.wrapper.style.top = `${y}px`;
+        this.wrapper.style.bottom = null;
+        this.wrapper.style.right = null;
+    } else {
+        this.wrapper.style.left = null;
+        this.wrapper.style.top = null;
     }
+
+    // Reset the state to defaults before loading new data
+    this.state.points = [];
+    this.state.selectedPointIds.clear();
+    this.state.lastSelectedPointId = null;
+    this.state.undoStack = [];
+    this.state.redoStack = [];
+    this.state.isCyclic = false;
+    this.state.loadedColormapName = null;
+    this.state.loadedColormapType = null;
+    
+    // Default values for view settings
+    let initialViewLightness = 0.5;
+    let initialViewAlpha = 1.0;
+    
+    if (initialState && initialState.type === 'colormap' && initialState.points) {
+        let pointsToLoad = JSON.parse(JSON.stringify(initialState.points));
+        
+        // If it's a single point, ensure its position is 0.5
+        if (pointsToLoad.length === 1) {
+            pointsToLoad[0].pos = 0.5;
+            
+            // Calculate the lightness from the single color
+            const rgb = pointsToLoad[0].color;
+            const r = rgb[0] / 255;
+            const g = rgb[1] / 255;
+            const b = rgb[2] / 255;
+            
+            // Convert RGB to HSL to get lightness
+            const max = Math.max(r, g, b);
+            const min = Math.min(r, g, b);
+            const lightness = (max + min) / 2;
+            
+            initialViewLightness = lightness;
+            initialViewAlpha = pointsToLoad[0].alpha !== undefined ? pointsToLoad[0].alpha : 1.0;
+        }
+        
+        // Use the class's own internal method to create fully valid points
+        this.state.points = pointsToLoad.map(p => {
+            const rgb = p.color;
+            const alpha = p.alpha !== undefined ? p.alpha : 1.0;
+            // createPointFromRgb expects colors in the 0-1 range
+            return this.createPointFromRgb(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255, alpha, p.pos, p.order || 1);
+        });
+        
+    } else {
+        // If no initial state is provided, the editor will start empty.
+        this.state.points = [];
+    }
+    
+    // Set the view settings after processing the initial state
+    this.state.viewLightness = initialViewLightness;
+    this.state.viewAlpha = initialViewAlpha;
+    
+    this.sortPoints();
+    if (this.state.points.length > 0) {
+        this.state.lastSelectedPointId = this.state.points[0].id;
+        this.state.selectedPointIds.add(this.state.points[0].id);
+    }
+
+    this.wrapper.style.display = 'grid';
+    this.setDirty(false);
+
+    requestAnimationFrame(() => {
+        this.setupCanvases();
+        this.drawAll();
+    });
+}
 
     createSnapshot() {
         return {
