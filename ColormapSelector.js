@@ -119,16 +119,16 @@ export default class ColormapSelector {
         if (pointsToLoad.length === 1) {
             pointsToLoad[0].pos = 0.5;
             
-            // Calculate the lightness from the single color
+            // Calculate the lightness based on the RGB cube color space
             const rgb = pointsToLoad[0].color;
             const r = rgb[0] / 255;
             const g = rgb[1] / 255;
             const b = rgb[2] / 255;
             
-            // Convert RGB to HSL to get lightness
-            const max = Math.max(r, g, b);
-            const min = Math.min(r, g, b);
-            const lightness = (max + min) / 2;
+            // For RGB cube, lightness is the distance from the black corner (0,0,0)
+            // to the white corner (1,1,1) along the main diagonal
+            // This is essentially the average of the RGB components
+            const lightness = (r + g + b) / 3;
             
             initialViewLightness = lightness;
             initialViewAlpha = pointsToLoad[0].alpha !== undefined ? pointsToLoad[0].alpha : 1.0;
