@@ -10,24 +10,29 @@ root = fr"./"
 extensions = ('.py',".html",".js",".css", '.json', '.md', '.txt','.toml','.mbar','.ico','.ps1')
 
 # Directories and patterns to exclude entirely (will not be walked)
-# Common examples: virtual environments, git files, caches, build artifacts
 exclude_dirs = (
     '.git',
     '__pycache__',
     '.pytest_cache',
     'dist',
     'tests',
-    'logs'
+    'logs',
+    "node_modules"
 )
+
+# Files to exclude from the tree and content entirely by exact match
+exclude_exact_filenames = (
+    'write_content_to_file.py',
+    'project_content.txt',
+)
+
+# Files to exclude from the tree and content if their name contains any of these strings
+exclude_filename_patterns = ('lock',)
 
 # Specific files to list in the tree but exclude their *content* from the output
 exclude_files = (
-    'project_content.txt',
-    'write_content_to_file.py',
     'session.json',
     'cm_logo.ico',
-    "temp.js",
-    "temp2.js"
 )
 
 # Output file name
@@ -41,99 +46,102 @@ root = os.path.abspath(root)
 print(f"Starting directory: {root}")
 print(f"Output file: {output_filename}")
 
+# The instructions to be added at the end of the file
+llm_instructions = """
+=== LLM Instructions ===
+Now please just read the project and the rules for writing code and just wait for instructions.
+
+Here are the rules:
+1. DONT write comments, placeholders or docstrings if not explicitely told.
+2. Write functions with the correct initial indentation so that if the function is indented so is your code that you write.
+3. Use regular spaces: " " and do not use " " for space.
+4. For changes that require multiple replacements please tell me what to replace with what instead of rewriting large portions of text. You can use vscode valid regexp for instance.
+5. For small functions less than 50 lines of code pleae rewrite the full function. For larger functions please only write complete control statements if/while/case.
+6. Never omit/change working logic if not explicitely statet that it should be removed/change
+7. DONT use the CANVAS TOOL where code is written in artifacts.
+8. Write one functions that are new seperately ot functions that needs updated.
+9. Make sure to write what has been change where to place/what to replace for each code snippet.
+"""
+
+
 try:
+    # Using "w" mode ensures the file is overwritten if it exists
     with open(output_filename, "w", encoding="utf-8") as outfile:
         # === Add Directory Structure ===
         outfile.write("=== Project Directory Structure ===\n")
         outfile.write(f"Root: {root}\n")
         outfile.write("Relevant files and folders (excluding specified patterns):\n\n")
 
-        # Use a single walk for tree structure
-        # Keep track of levels for indentation
         start_level = root.count(os.sep)
         for current_root, dirs, files in os.walk(root, topdown=True):
-            # Filter directories *in place* to prevent walking into excluded ones
-            # Also exclude hidden directories starting with '.'
             dirs[:] = [d for d in dirs if d not in exclude_dirs and not d.startswith('.')]
-
             rel_path_from_start = os.path.relpath(current_root, root)
             level = current_root.count(os.sep) - start_level
 
-            # --- Branch Exclusion Check (for structure) ---
-            # If the current directory itself (relative to root) matches an exclusion, skip it.
-            # This prevents printing the excluded dir name itself.
-            # Note: We already modified `dirs[:]` above, this is for printing the *current* dir.
-            # Skip if we are inside a hidden directory (relative path contains '/.')
-            # or if a direct component of the relative path is in exclude_dirs
             if rel_path_from_start != '.':
-                 path_components = os.path.normpath(rel_path_from_start).split(os.sep)
-                 if any(comp in exclude_dirs or comp.startswith('.') for comp in path_components):
-                     # We already pruned `dirs` list, so just don't print this entry
-                     continue
+                path_components = os.path.normpath(rel_path_from_start).split(os.sep)
+                if any(comp in exclude_dirs or comp.startswith('.') for comp in path_components):
+                    continue
 
-                 indent = '│   ' * (level -1) + '├── ' if level > 0 else ''
-                 outfile.write(f"{indent}{os.path.basename(current_root)}/\n")
+                indent = '│   ' * (level - 1) + '├── ' if level > 0 else ''
+                outfile.write(f"{indent}{os.path.basename(current_root)}/\n")
             else:
-                 # Indicate the root for clarity, even if empty or just containing files
-                 outfile.write(".\n")
+                outfile.write(".\n")
 
-
-            # --- File Output for Tree ---
             file_indent = '│   ' * level + '├── '
-            files.sort() # Sort files for consistent order
+            files.sort()
             for file in files:
-                # Exclude hidden files starting with '.'
-                if file.endswith(extensions) and not file.startswith('.'):
-                     outfile.write(f"{file_indent}{file}\n")
+                # Apply all file exclusion rules
+                if (file.endswith(extensions) and
+                    not file.startswith('.') and
+                    file not in exclude_exact_filenames and
+                    not any(p in file for p in exclude_filename_patterns)):
+                        outfile.write(f"{file_indent}{file}\n")
 
         outfile.write("\n\n=== File Contents ===\n\n")
 
         # === Add File Contents ===
         for current_root, dirs, files in os.walk(root, topdown=True):
-            # Apply the same directory filtering as above
             dirs[:] = [d for d in dirs if d not in exclude_dirs and not d.startswith('.')]
-
-            # --- Branch Exclusion Check (for content) ---
-            # Similar check to skip processing files in excluded/hidden directories
             rel_path_from_start = os.path.relpath(current_root, root)
             if rel_path_from_start != '.':
-                 path_components = os.path.normpath(rel_path_from_start).split(os.sep)
-                 if any(comp in exclude_dirs or comp.startswith('.') for comp in path_components):
-                     continue # Skip files in this directory
+                path_components = os.path.normpath(rel_path_from_start).split(os.sep)
+                if any(comp in exclude_dirs or comp.startswith('.') for comp in path_components):
+                    continue
 
-
-            files.sort() # Sort files for consistent order
+            files.sort()
             for file in files:
-                # Exclude hidden files starting with '.'
-                if file.endswith(extensions) and not file.startswith('.'):
-                    file_path = os.path.join(current_root, file)
-                    # *** KEY CHANGE: Calculate path relative to the specified root ***
-                    relative_path = os.path.relpath(file_path, root)
+                # Apply all file exclusion rules again for content processing
+                if (file.endswith(extensions) and
+                    not file.startswith('.') and
+                    file not in exclude_exact_filenames and
+                    not any(p in file for p in exclude_filename_patterns)):
+                        file_path = os.path.join(current_root, file)
+                        relative_path = os.path.relpath(file_path, root)
+                        display_path = relative_path.replace(os.sep, '/')
+                        outfile.write(f"=== {display_path} ===\n")
 
-                    # Use OS-agnostic separator for display
-                    display_path = relative_path.replace(os.sep, '/')
-                    outfile.write(f"=== {display_path} ===\n")
-
-                    if file in exclude_files:
-                        outfile.write("--- CONTENT EXCLUDED (listed in exclude_files) ---\n")
-                    else:
-                        try:
-                            # Attempt to read with utf-8, fallback to latin-1 for binary/other files
+                        if file in exclude_files:
+                            outfile.write("--- CONTENT EXCLUDED (listed in exclude_files) ---\n")
+                        else:
                             try:
-                                with open(file_path, "r", encoding="utf-8") as infile:
-                                    outfile.write(infile.read())
-                            except UnicodeDecodeError:
                                 try:
-                                    with open(file_path, "r", encoding="latin-1") as infile:
+                                    with open(file_path, "r", encoding="utf-8") as infile:
                                         outfile.write(infile.read())
-                                    outfile.write("\n--- (Warning: Read using latin-1 encoding) ---\n")
-                                except Exception as inner_e:
-                                     outfile.write(f"--- Error reading file (fallback failed): {inner_e} ---\n")
+                                except UnicodeDecodeError:
+                                    try:
+                                        with open(file_path, "r", encoding="latin-1") as infile:
+                                            outfile.write(infile.read())
+                                        outfile.write("\n--- (Warning: Read using latin-1 encoding) ---\n")
+                                    except Exception as inner_e:
+                                        outfile.write(f"--- Error reading file (fallback failed): {inner_e} ---\n")
+                            except Exception as e:
+                                outfile.write(f"--- Error reading file: {e} ---\n")
+                        outfile.write("\n\n")
 
-                        except Exception as e:
-                            outfile.write(f"--- Error reading file: {e} ---\n")
-                    outfile.write("\n\n") # Add separation between file contents
-        
+        # === Add LLM Instructions at the end of the file ===
+        outfile.write(llm_instructions)
+
     print("Successfully generated project content file.")
 
 except Exception as e:

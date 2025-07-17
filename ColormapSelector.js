@@ -613,17 +613,38 @@ createCubicButtonIcon() {
         });
 
         this.elements.selectButton.addEventListener('click', () => {
-            const output = {
-                points: this.state.points.map(p => {
-                    const color = this.abstractToRgb(p.hsPos.u, p.hsPos.v, p.lightness);
-                    const rgb = this.clampColor(color);
-                    return {
-                        pos: parseFloat(p.pos.toFixed(4)),
-                        alpha: parseFloat(p.alpha.toFixed(4)),
-                        color: [rgb.r, rgb.g, rgb.b],
-                        order: p.order
+            let outputPoints = this.state.points.map(p => {
+                const color = this.abstractToRgb(p.hsPos.u, p.hsPos.v, p.lightness);
+                const rgb = this.clampColor(color);
+                return {
+                    pos: parseFloat(p.pos.toFixed(4)),
+                    alpha: parseFloat(p.alpha.toFixed(4)),
+                    color: [rgb.r, rgb.g, rgb.b],
+                    order: p.order
+                };
+            });
+
+            if (this.state.isCyclic && outputPoints.length > 0) {
+                const firstPoint = outputPoints[0];
+                const lastPoint = outputPoints[outputPoints.length - 1];
+                
+                if (Math.abs(firstPoint.pos) > 1e-6 || Math.abs(lastPoint.pos - 1) > 1e-6) {
+                    const scaledPoints = outputPoints.map(p => ({
+                        ...p,
+                        pos: parseFloat(p.pos.toFixed(4))
+                    }));
+                    
+                    const firstCopy = {
+                        ...firstPoint,
+                        pos: 1.0
                     };
-                }),
+                    
+                    outputPoints = [...scaledPoints, firstCopy];
+                }
+            }
+
+            const output = {
+                points: outputPoints,
                 isCyclic: this.state.isCyclic
             };
 
