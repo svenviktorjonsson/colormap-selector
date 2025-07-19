@@ -3,6 +3,7 @@ import ColormapSelector from './ColormapSelector.js';
 document.addEventListener('DOMContentLoaded', async () => {
     const openEditorButton = document.getElementById('open-editor-button');
     const displayCanvas = document.getElementById('display-canvas');
+    let currentColormapData = null;
 
     const userData = loadUserData();
     const colorEditor = new ColormapSelector(userData.customColors, userData.customColormaps);
@@ -13,18 +14,29 @@ document.addEventListener('DOMContentLoaded', async () => {
         colorEditor.show();
     });
 
+    // Add listener to re-open the editor on double-click
+    displayCanvas.addEventListener('dblclick', () => {
+        if (currentColormapData) {
+            const initialState = {
+                type: 'colormap',
+                ...currentColormapData
+            };
+            colorEditor.show(null, null, initialState);
+        } else {
+            colorEditor.show(); // Open empty editor if no colormap is set
+        }
+    });
+
     colorEditor.getElement().addEventListener('select', (e) => {
-        const colormapPoints = e.detail.points;
-        console.log('Colormap selected:', colormapPoints);
+        currentColormapData = e.detail; // Store the latest colormap data
+        console.log('Colormap selected:', currentColormapData);
         
-        // Draw the colormap but don't close the editor
-        drawColormapOnCanvas(colormapPoints, displayCanvas);
+        // The 'points' property now contains the dense, pre-interpolated data
+        drawColormapOnCanvas(currentColormapData.points, displayCanvas);
         
-        // Still save user data when selecting
         saveUserData(colorEditor.customColors, colorEditor.customColormaps);
     });
 
-    // Add separate event listener for when editor is closed
     colorEditor.getElement().addEventListener('dataChanged', (e) => {
         saveUserData(e.detail.customColors, e.detail.customColormaps);
     });
@@ -48,20 +60,21 @@ document.addEventListener('DOMContentLoaded', async () => {
             console.error('Failed to save user data:', error);
         }
     }
-
+    
     function drawColormapOnCanvas(points, canvas) {
         const ctx = canvas.getContext('2d');
         const { width, height } = canvas;
         
-        // Clear canvas first
         ctx.clearRect(0, 0, width, height);
-        
-        if (points.length === 0) return;
+        if (!points || points.length === 0) return;
         
         const gradient = ctx.createLinearGradient(0, 0, width, 0);
 
         points.forEach(point => {
-            const cssColor = `rgba(${point.color.join(',')}, ${point.alpha})`;
+            const r = Math.round(point.color[0]);
+            const g = Math.round(point.color[1]);
+            const b = Math.round(point.color[2]);
+            const cssColor = `rgba(${r},${g},${b},${point.alpha})`;
             gradient.addColorStop(point.pos, cssColor);
         });
 

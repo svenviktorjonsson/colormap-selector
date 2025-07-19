@@ -20,7 +20,8 @@ export default class ColormapSelector {
             isDirty: false,
             loadedColormapName: null,
             loadedColormapType: null,
-            isCyclic: false
+            isCyclic: false,
+            cyclicStateWhenEnabled: null
         };
 
         this.namedColors = {};
@@ -112,8 +113,10 @@ export default class ColormapSelector {
     let initialViewLightness = 0.5;
     let initialViewAlpha = 1.0;
     
-    if (initialState && initialState.type === 'colormap' && initialState.points) {
-        let pointsToLoad = JSON.parse(JSON.stringify(initialState.points));
+    if (initialState && initialState.type === 'colormap' && (initialState.points || initialState.controlPoints)) {
+        // Prioritize loading the editable control points if they exist.
+        // Fall back to the dense 'points' for backward compatibility.
+        let pointsToLoad = JSON.parse(JSON.stringify(initialState.controlPoints || initialState.points));
         
         // If it's a single point, ensure its position is 0.5
         if (pointsToLoad.length === 1) {
@@ -139,7 +142,7 @@ export default class ColormapSelector {
             const rgb = p.color;
             const alpha = p.alpha !== undefined ? p.alpha : 1.0;
             // createPointFromRgb expects colors in the 0-1 range
-            return this.createPointFromRgb(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255, alpha, p.pos, p.order || 1);
+            return this.createPointFromRgb(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255, alpha, p.pos, p.order ?? 1);
         });
         
     } else {
@@ -529,11 +532,14 @@ createCubicButtonIcon() {
     reverseColormap() {
         if (this.state.points.length === 0) return;
         
+        this.markAsDirty();
+        
         this.state.points.forEach(point => {
             point.pos = 1 - point.pos;
         });
         
         this.sortPoints();
+        
         this.drawAll();
     }
 
@@ -613,7 +619,81 @@ createCubicButtonIcon() {
         });
 
         this.elements.selectButton.addEventListener('click', () => {
-            let outputPoints = this.state.points.map(p => {
+            let outputPoints = [];
+            const points = this.state.points;
+            const n = points.length;
+
+            const formatPoint = (p, posOverride) => {
+                const color = this.abstractToRgb(p.hsPos.u, p.hsPos.v, p.lightness);
+                const rgb = this.clampColor(color);
+                return {
+                    pos: parseFloat((posOverride !== undefined ? posOverride : p.pos).toFixed(6)),
+                    alpha: parseFloat(p.alpha.toFixed(4)),
+                    color: [rgb.r, rgb.g, rgb.b],
+                    order: p.order
+                };
+            };
+
+            if (n > 0) {
+                const numSegments = this.state.isCyclic ? n : n - 1;
+                for (let i = 0; i < numSegments; i++) {
+                    const p1 = points[i];
+                    const p2 = points[(i + 1) % n];
+                    outputPoints.push(formatPoint(p1));
+                    const effectiveOrder = Math.max(p1.order, p2.order);
+
+                    if (effectiveOrder === 0) {
+                        let segmentStartPos = p1.pos;
+                        let segmentEndPos = p2.pos;
+                        if (this.state.isCyclic && segmentEndPos < segmentStartPos) {
+                            segmentEndPos += 1.0;
+                        }
+                        const transitionPos = segmentStartPos + (segmentEndPos - segmentStartPos) * 0.5;
+                        outputPoints.push(formatPoint(p1, this.wrapPositionCyclic(transitionPos - 1e-6)));
+                        outputPoints.push(formatPoint(p2, this.wrapPositionCyclic(transitionPos)));
+                    } else if (effectiveOrder === 3) {
+                        const CUBIC_SAMPLES_PER_SEGMENT = 16;
+                        const segmentStartPos = p1.pos;
+                        let segmentEndPos = p2.pos;
+                        if (this.state.isCyclic && segmentEndPos < segmentStartPos) {
+                            segmentEndPos += 1.0;
+                        }
+                        const segmentDuration = segmentEndPos - segmentStartPos;
+                        for (let j = 1; j < CUBIC_SAMPLES_PER_SEGMENT; j++) {
+                            const tLocal = j / CUBIC_SAMPLES_PER_SEGMENT;
+                            const tGlobal = segmentStartPos + tLocal * segmentDuration;
+                            const props = this.getInterpolatedPropertiesAt(this.wrapPositionCyclic(tGlobal));
+                            if (props) {
+                                const color = this.abstractToRgb(props.u, props.v, props.lightness);
+                                const rgb = this.clampColor(color);
+                                outputPoints.push({
+                                    pos: parseFloat(this.wrapPositionCyclic(tGlobal).toFixed(6)),
+                                    alpha: parseFloat(props.alpha.toFixed(4)),
+                                    color: [rgb.r, rgb.g, rgb.b],
+                                    order: props.order
+                                });
+                            }
+                        }
+                    }
+                }
+                if (!this.state.isCyclic) {
+                    outputPoints.push(formatPoint(points[n - 1]));
+                }
+            }
+
+            const posMap = new Map();
+            outputPoints.forEach(p => posMap.set(p.pos, p));
+            let finalPoints = Array.from(posMap.values()).sort((a,b) => a.pos - b.pos);
+            
+            if (this.state.isCyclic && finalPoints.length > 0) {
+                const firstPoint = finalPoints[0];
+                const lastPoint = finalPoints[finalPoints.length - 1];
+                if (lastPoint.pos < 1.0 - 1e-6) {
+                    finalPoints.push({ ...firstPoint, pos: 1.0 });
+                }
+            }
+
+            const originalControlPoints = this.state.points.map(p => {
                 const color = this.abstractToRgb(p.hsPos.u, p.hsPos.v, p.lightness);
                 const rgb = this.clampColor(color);
                 return {
@@ -624,27 +704,9 @@ createCubicButtonIcon() {
                 };
             });
 
-            if (this.state.isCyclic && outputPoints.length > 0) {
-                const firstPoint = outputPoints[0];
-                const lastPoint = outputPoints[outputPoints.length - 1];
-                
-                if (Math.abs(firstPoint.pos) > 1e-6 || Math.abs(lastPoint.pos - 1) > 1e-6) {
-                    const scaledPoints = outputPoints.map(p => ({
-                        ...p,
-                        pos: parseFloat(p.pos.toFixed(4))
-                    }));
-                    
-                    const firstCopy = {
-                        ...firstPoint,
-                        pos: 1.0
-                    };
-                    
-                    outputPoints = [...scaledPoints, firstCopy];
-                }
-            }
-
             const output = {
-                points: outputPoints,
+                points: finalPoints,
+                controlPoints: originalControlPoints,
                 isCyclic: this.state.isCyclic
             };
 
@@ -935,46 +997,40 @@ setInterpolationMode(mode) {
     }
 
     toggleCycle() {
-        console.log('toggleCycle - isDirty:', this.state.isDirty, 'originalPositions:', !!this.state.originalPositions);
-        if (!this.state.isCyclic && this.state.points.length > 0) {
-            // Enabling cycling: rescale points only if there are points at BOTH extremes
-            const hasPointAtZero = this.state.points.some(p => Math.abs(p.pos) < 1e-6);
-            const hasPointAtOne = this.state.points.some(p => Math.abs(p.pos - 1) < 1e-6);
-            
-            if (hasPointAtZero && hasPointAtOne) {
-                // Store original positions before rescaling
-                this.state.originalPositions = this.state.points.map(p => ({ id: p.id, pos: p.pos }));
-                
-                const n = this.state.points.length;
-                const scaleFactor = 1 - (1 / n);  // For n=2: 0.5, for n=3: 0.667, etc.
-                this.state.points.forEach(point => {
-                    point.pos = point.pos * scaleFactor;
-                });
-            } else {
-                this.state.originalPositions = null;
-            }
-        } else if (this.state.isCyclic && this.state.points.length > 0) {
-            // Disabling cycling: restore original positions if not dirty
-            if (this.state.originalPositions && !this.state.isDirty) {
-                this.restoreOriginalPositions();
-            } else if (!this.state.isDirty) {
-                // Fallback: rescale points back only if not dirty
-                const maxPos = Math.max(...this.state.points.map(p => p.pos));
-                if (maxPos < 0.99) {  // If max position suggests they were rescaled
-                    const n = this.state.points.length;
-                    const scaleFactor = 1 - (1 / n);
-                    this.state.points.forEach(point => {
-                        point.pos = point.pos / scaleFactor;  // Inverse operation
-                    });
-                }
-            }
+    if (this.state.points.length === 0) return;
+
+    if (!this.state.isCyclic) {
+        const hasPointAtZero = this.state.points.some(p => Math.abs(p.pos) < 1e-6);
+        const hasPointAtOne = this.state.points.some(p => Math.abs(p.pos - 1) < 1e-6);
+        
+        if (hasPointAtZero && hasPointAtOne) {
+            this.state.originalPositions = this.state.points.map(p => ({ id: p.id, pos: p.pos }));
+            const n = this.state.points.length;
+            const scaleFactor = 1 - (1 / n);
+            this.state.points.forEach(point => {
+                point.pos *= scaleFactor;
+            });
+        } else {
             this.state.originalPositions = null;
         }
-        
-        this.state.isCyclic = !this.state.isCyclic;
-        this.elements.cycleButton.classList.toggle('active', this.state.isCyclic);
-        this.drawAll();
+        this.state.isCyclic = true;
+        this.state.cyclicStateWhenEnabled = this.createSnapshot();
+    } else {
+        if (this.state.originalPositions && !this.state.isDirty) {
+            this.restoreOriginalPositions();
+            this.state.originalPositions = null;
+            this.state.isCyclic = false;
+        } else {
+            this.state.originalPositions = null;
+            this.state.isCyclic = false;
+        }
+        this.state.cyclicStateWhenEnabled = null;
     }
+    
+    // Update button text based on current state (no class changes)
+    this.elements.cycleButton.textContent = this.state.isCyclic ? 'Uncycle' : 'Cycle';
+    this.drawAll();
+}
     
         drawColorIcon(canvas, rgb) {
             const ctx = canvas.getContext('2d');
@@ -1833,8 +1889,8 @@ setupCanvases() {
     
         
         drawHorizontalLine(ctx, y) {
-            ctx.strokeStyle = C.COLOR_HORIZONTAL_LINE;
-            ctx.lineWidth = C.LINE_WIDTH_HORIZONTAL;
+            ctx.strokeStyle = C.COLOR_SELECTION_BLUE;
+            ctx.lineWidth = 1.5; // Reduce from C.LINE_WIDTH_HORIZONTAL to 1
             ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
             ctx.shadowBlur = 8;
             ctx.beginPath();
@@ -1861,30 +1917,55 @@ setupCanvases() {
 
         // Draw connecting lines first
         if (this.state.points.length > 1) {
-            const tolerance = 0.02;
-            
-            // Draw normal segments
-            for (let i = 0; i < this.state.points.length - 1; i++) {
+            const numSegments = this.state.isCyclic ? this.state.points.length : this.state.points.length - 1;
+
+            for (let i = 0; i < numSegments; i++) {
                 const p1 = this.state.points[i];
-                const p2 = this.state.points[i + 1];
-                
+                const p2 = this.state.points[(i + 1) % this.state.points.length];
                 const effectiveOrder = Math.max(p1.order, p2.order);
+
                 if (effectiveOrder === 0) continue;
-                
-                this.drawHSSegment(ctx, p1, p2, effectiveOrder, tolerance);
-            }
-            
-            // Draw cyclic connection if enabled
-            if (this.state.isCyclic && this.state.points.length >= 2) {
-                const lastPoint = this.state.points[this.state.points.length - 1];
-                const firstPoint = this.state.points[0];
-                const effectiveOrder = Math.max(lastPoint.order, firstPoint.order);
-                if (effectiveOrder !== 0) {
-                    this.drawHSSegmentCyclic(ctx, lastPoint, firstPoint, effectiveOrder, tolerance);
+
+                let segmentStartPos = p1.pos;
+                let segmentEndPos = p2.pos;
+                if (this.state.isCyclic && segmentEndPos < segmentStartPos) {
+                    segmentEndPos += 1.0;
                 }
+                const segmentLength = segmentEndPos - segmentStartPos;
+                if (segmentLength < 1e-9) continue;
+
+                const steps = Math.max(10, Math.ceil(segmentLength * 100));
+                const pathPoints = [];
+
+                for (let j = 0; j <= steps; j++) {
+                    const t = segmentStartPos + (j / steps) * segmentLength;
+                    const props = this.getInterpolatedPropertiesAt(this.wrapPositionCyclic(t));
+                    if (!props) continue;
+                    
+                    const clamped = this.clampAbstractPoint(props.u, props.v, props.lightness);
+                    const x = clamped.u * this.state.transform.scale + this.state.transform.offsetX;
+                    const y = clamped.v * this.state.transform.scale + this.state.transform.offsetY;
+                    pathPoints.push({ x, y, isOnPlane: Math.abs(props.lightness - this.state.viewLightness) < 1e-10 });
+                }
+
+                if (pathPoints.length < 2) continue;
+
+                const allOnPlane = pathPoints.every(p => p.isOnPlane);
+                ctx.strokeStyle = 'black';
+                ctx.lineWidth = C.LINE_WIDTH_DEFAULT;
+                ctx.globalAlpha = allOnPlane ? 0.7 : 0.4;
+                ctx.setLineDash(allOnPlane ? [] : C.DASHED_LINE_STYLE);
+
+                ctx.beginPath();
+                ctx.moveTo(pathPoints[0].x, pathPoints[0].y);
+                for (let k = 1; k < pathPoints.length; k++) {
+                    ctx.lineTo(pathPoints[k].x, pathPoints[k].y);
+                }
+                ctx.stroke();
+                ctx.setLineDash([]);
             }
             
-            this.drawLightnessIntersectionDots(ctx, tolerance);
+            this.drawLightnessIntersectionDots(ctx);
         }
 
         // Create clipping region for points
@@ -1897,19 +1978,16 @@ setupCanvases() {
             const x = point.hsPos.u * this.state.transform.scale + this.state.transform.offsetX;
             const y = point.hsPos.v * this.state.transform.scale + this.state.transform.offsetY;
             
-            // Only draw if point is within the valid region (with some tolerance for edge points)
             if (x >= clipX - C.NODE_RADIUS && x <= clipX + clipWidth + C.NODE_RADIUS &&
                 y >= clipY - C.NODE_RADIUS && y <= clipY + clipHeight + C.NODE_RADIUS) {
                 
                 const color = this.abstractToRgb(point.hsPos.u, point.hsPos.v, point.lightness);
                 const {r, g, b} = this.clampColor(color);
-
                 const isSelected = this.state.selectedPointIds.has(point.id);
                 const isLastSelected = point.id === this.state.lastSelectedPointId;
                 const isOnCurrentPlane = Math.abs(point.lightness - this.state.viewLightness) < 0.01;
 
                 ctx.save();
-
                 ctx.beginPath();
                 switch (point.order) {
                     case 0: this._drawCircle(ctx, x, y, C.NODE_RADIUS); break;
@@ -1917,73 +1995,22 @@ setupCanvases() {
                     case 3: this._drawTriangle(ctx, x, y, C.NODE_RADIUS); break;
                     default: this._drawCircle(ctx, x, y, C.NODE_RADIUS);
                 }
-
                 ctx.globalAlpha = point.alpha;
                 ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
                 ctx.fill();
-
                 ctx.globalAlpha = 1.0;
-                if (isOnCurrentPlane) {
-                    ctx.strokeStyle = isSelected ? C.COLOR_SELECTION_BLUE : 'black';
-                    ctx.lineWidth = isLastSelected ? C.LINE_WIDTH_SELECTED : C.LINE_WIDTH_DEFAULT;
-                    ctx.stroke();
-                } else {
-                    ctx.setLineDash(C.DASHED_LINE_STYLE);
-                    ctx.strokeStyle = isSelected ? C.COLOR_SELECTION_BLUE : 'black';
-                    ctx.lineWidth = C.LINE_WIDTH_DEFAULT;
-                    ctx.stroke();
-                    ctx.setLineDash([]);
-                }
+                ctx.strokeStyle = isSelected ? C.COLOR_SELECTION_BLUE : 'black';
+                ctx.lineWidth = isLastSelected ? C.LINE_WIDTH_SELECTED : C.LINE_WIDTH_DEFAULT;
+                ctx.setLineDash(isOnCurrentPlane ? [] : C.DASHED_LINE_STYLE);
+                ctx.stroke();
                 ctx.restore();
             }
         });
         
-        ctx.restore(); // Remove clipping
-    }
-
-    drawHSSegmentCyclic(ctx, lastPoint, firstPoint, effectiveOrder, tolerance) {
-        const steps = 20;
-        const pathPoints = [];
-        
-        for (let j = 0; j <= steps; j++) {
-            const tLocal = j / steps;
-            const globalT = lastPoint.pos + tLocal * (1 - lastPoint.pos + firstPoint.pos);
-            let wrappedT = globalT > 1 ? globalT - 1 : globalT;
-            
-            const props = this.getInterpolatedPropertiesAt(wrappedT);
-            if (!props) continue;
-            
-            const clamped = this.clampAbstractPoint(props.u, props.v, props.lightness);
-            const x = clamped.u * this.state.transform.scale + this.state.transform.offsetX;
-            const y = clamped.v * this.state.transform.scale + this.state.transform.offsetY;
-            
-            const isExactlyOnPlane = Math.abs(props.lightness - this.state.viewLightness) < 1e-10;
-            pathPoints.push({ x, y, isOnPlane: isExactlyOnPlane });
-        }
-        
-        if (pathPoints.length < 2) return;
-        
-        const allOnPlane = pathPoints.every(p => p.isOnPlane);
-        
-        ctx.save();
-        ctx.strokeStyle = 'black';
-        ctx.lineWidth = C.LINE_WIDTH_DEFAULT;
-        ctx.globalAlpha = allOnPlane ? 0.7 : 0.4;
-        
-        if (!allOnPlane) {
-            ctx.setLineDash([4, 4]);
-        }
-        
-        ctx.beginPath();
-        ctx.moveTo(pathPoints[0].x, pathPoints[0].y);
-        for (let i = 1; i < pathPoints.length; i++) {
-            ctx.lineTo(pathPoints[i].x, pathPoints[i].y);
-        }
-        ctx.stroke();
-        
-        ctx.setLineDash([]);
         ctx.restore();
     }
+
+    
     
         drawLightnessElements() {
     const canvas = this.elements.interactiveCanvases['lightness'];
@@ -2002,15 +2029,21 @@ setupCanvases() {
     const validWidth = validRight - validLeft;
     const validHeight = validBottom - validTop;
     
-    // Always draw the lightness line, even with no points selected
-    const lineY = validBottom - this.state.viewLightness * validHeight;
+    let lightness = this.state.viewLightness;
+    if (this.state.activeDrag.pointId && this.state.activeDrag.type === 'lightness') {
+        const draggedPoint = this.getPointById(this.state.activeDrag.pointId);
+        if (draggedPoint) {
+            lightness = draggedPoint.lightness;
+        }
+    }
+    
+    const lineY = validBottom - lightness * validHeight;
     this.drawHorizontalLine(ctx, lineY);
     
     this.drawConnectingLine(ctx, 'lightness');
     this.drawTicks(ctx, 'lightness');
     
     this.state.points.forEach((point) => {
-        // pos=0 should be at validLeft, pos=1 should be at validRight
         const x = validLeft + point.pos * validWidth;
         const y = validBottom - point.lightness * validHeight;
         const color = this.abstractToRgb(point.hsPos.u, point.hsPos.v, point.lightness);
@@ -2020,6 +2053,253 @@ setupCanvases() {
         this.drawPoint(ctx, x, y, r, g, b, isSelected, isLastSelected, point.order);
     });
 }
+
+    
+    drawConnectingLine(ctx, type) {
+    if (this.state.points.length < 2) return;
+
+    ctx.save();
+    ctx.lineWidth = C.LINE_WIDTH_DEFAULT;
+    
+    const points = this.state.points;
+    const n = points.length;
+
+    if (type === 'hs') {
+        ctx.restore();
+        return;
+    }
+    
+    const glyphMargin = Math.ceil(C.NODE_RADIUS * 2.2);
+    const tickMargin = Math.ceil(C.CHECKERBOARD_SIZE / 2);
+    const totalMargin = glyphMargin + tickMargin;
+    
+    const validLeft = totalMargin;
+    const validBottom = ctx.canvas.height - glyphMargin;
+    const validWidth = ctx.canvas.width - totalMargin - glyphMargin;
+    const validHeight = validBottom - totalMargin;
+    const validRight = validLeft + validWidth;
+    
+    if (validWidth <= 0) {
+        ctx.restore();
+        return;
+    }
+
+    const numSegments = this.state.isCyclic ? n : n - 1;
+    
+    for (let i = 0; i < numSegments; i++) {
+        const p1 = points[i];
+        const p2 = points[(i + 1) % n];
+        const effectiveOrder = Math.max(p1.order, p2.order);
+        const isCyclicSegment = this.state.isCyclic && i === n - 1;
+
+        if (effectiveOrder === 0) {
+            // Handle constant interpolation (step functions)
+            const y1_screen = validBottom - p1[type] * validHeight;
+            const y2_screen = validBottom - p2[type] * validHeight;
+            const x1_screen = validLeft + p1.pos * validWidth;
+            const x2_screen = validLeft + p2.pos * validWidth;
+
+            if (isCyclicSegment && p1.pos > p2.pos) {
+                let startPos = p1.pos;
+                let endPos = p2.pos + 1.0;
+                const transitionPos = startPos + (endPos - startPos) * 0.5;
+                const transitionX = validLeft + (transitionPos - Math.floor(transitionPos)) * validWidth;
+                
+                const props1 = this.getInterpolatedPropertiesAt(p1.pos);
+                const props2 = this.getInterpolatedPropertiesAt(p2.pos);
+                
+                if (props1) {
+                    const color1 = this.abstractToRgb(props1.u, props1.v, props1.lightness); 
+                    const rgb1 = this.clampColor(color1);
+                    ctx.strokeStyle = `rgba(${rgb1.r},${rgb1.g},${rgb1.b},${props1.alpha})`;
+                    ctx.setLineDash([]);
+                    
+                    if (transitionPos > 1.0) {
+                        ctx.beginPath(); ctx.moveTo(x1_screen, y1_screen); ctx.lineTo(validRight, y1_screen); ctx.stroke();
+                        ctx.beginPath(); ctx.moveTo(validLeft, y1_screen); ctx.lineTo(transitionX, y1_screen); ctx.stroke();
+                    } else {
+                        ctx.beginPath(); ctx.moveTo(x1_screen, y1_screen); ctx.lineTo(transitionX, y1_screen); ctx.stroke();
+                    }
+                }
+                if (props2) {
+                    const color2 = this.abstractToRgb(props2.u, props2.v, props2.lightness); 
+                    const rgb2 = this.clampColor(color2);
+                    ctx.strokeStyle = `rgba(${rgb2.r},${rgb2.g},${rgb2.b},${props2.alpha})`;
+                    ctx.setLineDash([]);
+                    
+                    if (transitionPos > 1.0) {
+                        ctx.beginPath(); ctx.moveTo(transitionX, y2_screen); ctx.lineTo(x2_screen, y2_screen); ctx.stroke();
+                    } else {
+                        ctx.beginPath(); ctx.moveTo(transitionX, y2_screen); ctx.lineTo(validRight, y2_screen); ctx.stroke();
+                        ctx.beginPath(); ctx.moveTo(validLeft, y2_screen); ctx.lineTo(x2_screen, y2_screen); ctx.stroke();
+                    }
+                }
+                
+                ctx.beginPath(); ctx.setLineDash(C.DASHED_LINE_STYLE); ctx.strokeStyle = 'black';
+                ctx.moveTo(transitionX, y1_screen); ctx.lineTo(transitionX, y2_screen); ctx.stroke();
+                
+            } else if (!isCyclicSegment) {
+                let startPos = p1.pos;
+                let endPos = p2.pos;
+                const transitionPos = startPos + (endPos - startPos) * 0.5;
+                const transitionX = validLeft + transitionPos * validWidth;
+                
+                const props1 = this.getInterpolatedPropertiesAt(p1.pos);
+                const props2 = this.getInterpolatedPropertiesAt(p2.pos);
+                
+                if (props1) {
+                    const color1 = this.abstractToRgb(props1.u, props1.v, props1.lightness); 
+                    const rgb1 = this.clampColor(color1);
+                    ctx.strokeStyle = `rgba(${rgb1.r},${rgb1.g},${rgb1.b},${props1.alpha})`;
+                    ctx.setLineDash([]);
+                    
+                    const startX = (i === 0 && !this.state.isCyclic) ? validLeft : x1_screen;
+                    ctx.beginPath(); ctx.moveTo(startX, y1_screen); ctx.lineTo(transitionX, y1_screen); ctx.stroke();
+                }
+                if (props2) {
+                    const color2 = this.abstractToRgb(props2.u, props2.v, props2.lightness); 
+                    const rgb2 = this.clampColor(color2);
+                    ctx.strokeStyle = `rgba(${rgb2.r},${rgb2.g},${rgb2.b},${props2.alpha})`;
+                    ctx.setLineDash([]);
+                    
+                    const endX = (i === numSegments - 1 && !this.state.isCyclic) ? validRight : x2_screen;
+                    ctx.beginPath(); ctx.moveTo(transitionX, y2_screen); ctx.lineTo(endX, y2_screen); ctx.stroke();
+                }
+                
+                ctx.beginPath(); ctx.setLineDash(C.DASHED_LINE_STYLE); ctx.strokeStyle = 'black';
+                ctx.moveTo(transitionX, y1_screen); ctx.lineTo(transitionX, y2_screen); ctx.stroke();
+            }
+
+        } else {
+            // Handle linear/cubic interpolation
+            ctx.setLineDash([]);
+            
+            if (isCyclicSegment && p1.pos > p2.pos) {
+                const y1_screen = validBottom - p1[type] * validHeight;
+                const y2_screen = validBottom - p2[type] * validHeight;
+                const x1_screen = validLeft + p1.pos * validWidth;
+                const x2_screen = validLeft + p2.pos * validWidth;
+                
+                // First segment: from p1.pos to 1.0
+                const distanceToOne = 1.0 - p1.pos;
+                if (distanceToOne > 1e-6) {
+                    const gradient1 = ctx.createLinearGradient(x1_screen, 0, validRight, 0);
+                    const steps1 = Math.max(2, Math.ceil(distanceToOne * 20));
+                    
+                    for (let j = 0; j <= steps1; j++) {
+                        const t = p1.pos + (j / steps1) * distanceToOne;
+                        const props = this.getInterpolatedPropertiesAt(t);
+                        if (props) {
+                            const color = this.abstractToRgb(props.u, props.v, props.lightness);
+                            const {r, g, b} = this.clampColor(color);
+                            gradient1.addColorStop(j / steps1, `rgba(${r}, ${g}, ${b}, ${props.alpha})`);
+                        }
+                    }
+                    
+                    const propsAtOne = this.getInterpolatedPropertiesAt(1.0);
+                    const yAtOne = propsAtOne ? validBottom - propsAtOne[type] * validHeight : y1_screen;
+                    
+                    ctx.beginPath();
+                    ctx.moveTo(x1_screen, y1_screen);
+                    ctx.lineTo(validRight, yAtOne);
+                    ctx.strokeStyle = gradient1;
+                    ctx.stroke();
+                }
+                
+                // Second segment: from 0.0 to p2.pos
+                if (p2.pos > 1e-6) {
+                    const gradient2 = ctx.createLinearGradient(validLeft, 0, x2_screen, 0);
+                    const steps2 = Math.max(2, Math.ceil(p2.pos * 20));
+                    
+                    for (let j = 0; j <= steps2; j++) {
+                        const t = (j / steps2) * p2.pos;
+                        const props = this.getInterpolatedPropertiesAt(t);
+                        if (props) {
+                            const color = this.abstractToRgb(props.u, props.v, props.lightness);
+                            const {r, g, b} = this.clampColor(color);
+                            gradient2.addColorStop(j / steps2, `rgba(${r}, ${g}, ${b}, ${props.alpha})`);
+                        }
+                    }
+                    
+                    const propsAtZero = this.getInterpolatedPropertiesAt(0.0);
+                    const yAtZero = propsAtZero ? validBottom - propsAtZero[type] * validHeight : y2_screen;
+                    
+                    ctx.beginPath();
+                    ctx.moveTo(validLeft, yAtZero);
+                    ctx.lineTo(x2_screen, y2_screen);
+                    ctx.strokeStyle = gradient2;
+                    ctx.stroke();
+                }
+                
+            } else if (!isCyclicSegment) {
+                const x1_screen = validLeft + p1.pos * validWidth;
+                const x2_screen = validLeft + p2.pos * validWidth;
+                
+                const drawSegment = (startT, endT, startX, endX) => {
+                    const duration = endT - startT;
+                    if (Math.abs(duration) < 1e-9) return;
+                    const gradient = ctx.createLinearGradient(startX, 0, endX, 0);
+                    const pathSteps = Math.ceil(Math.abs(endX - startX) / 2);
+                    for (let j = 0; j <= pathSteps; j++) {
+                        const t = startT + (j / pathSteps) * duration;
+                        const props = this.getInterpolatedPropertiesAt(t); 
+                        if (!props) continue;
+                        const color = this.abstractToRgb(props.u, props.v, props.lightness);
+                        const {r, g, b} = this.clampColor(color);
+                        gradient.addColorStop(j / pathSteps, `rgba(${r}, ${g}, ${b}, ${props.alpha})`);
+                    }
+                    ctx.beginPath();
+                    for (let j = 0; j <= pathSteps; j++) {
+                        const t = startT + (j / pathSteps) * duration;
+                        const props = this.getInterpolatedPropertiesAt(t); 
+                        if (!props) continue;
+                        // FIX: Don't use wrapPositionCyclic, use the actual t value clamped to [0,1]
+                        const clampedT = Math.max(0, Math.min(1, t));
+                        const x = validLeft + clampedT * validWidth;
+                        const y = validBottom - props[type] * validHeight;
+                        if (j === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+                    }
+                    ctx.strokeStyle = gradient; 
+                    ctx.stroke();
+                };
+                
+                // CRITICAL FIX: Only draw extension to left edge if first point is NOT at position 0
+                if (i === 0 && !this.state.isCyclic && Math.abs(p1.pos) >= 1e-6) {
+                    const firstProps = this.getInterpolatedPropertiesAt(p1.pos);
+                    if (firstProps) {
+                        const color = this.abstractToRgb(firstProps.u, firstProps.v, firstProps.lightness);
+                        const {r, g, b} = this.clampColor(color);
+                        ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${firstProps.alpha})`;
+                        const y = validBottom - firstProps[type] * validHeight;
+                        ctx.beginPath();
+                        ctx.moveTo(validLeft, y);
+                        ctx.lineTo(x1_screen, y);
+                        ctx.stroke();
+                    }
+                }
+                
+                drawSegment(p1.pos, p2.pos, x1_screen, x2_screen);
+                
+                // CRITICAL FIX: Only draw extension to right edge if last point is NOT at position 1
+                if (i === numSegments - 1 && !this.state.isCyclic && Math.abs(p2.pos - 1.0) >= 1e-6) {
+                    const lastProps = this.getInterpolatedPropertiesAt(p2.pos);
+                    if (lastProps) {
+                        const color = this.abstractToRgb(lastProps.u, lastProps.v, lastProps.lightness);
+                        const {r, g, b} = this.clampColor(color);
+                        ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${lastProps.alpha})`;
+                        const y = validBottom - lastProps[type] * validHeight;
+                        ctx.beginPath();
+                        ctx.moveTo(x2_screen, y);
+                        ctx.lineTo(validRight, y);
+                        ctx.stroke();
+                    }
+                }
+            }
+        }
+    }
+    ctx.restore();
+}
+
 
 shouldDrawDirectPath(p1, p2) {
     // Check if both points are at extreme lightness values where color space might be problematic
@@ -2073,122 +2353,122 @@ drawInterpolatedPath(ctx, p1, p2, effectiveOrder) {
 }
 
 drawHSSegment(ctx, p1, p2, effectiveOrder, tolerance) {
-    const segmentLength = p2.pos - p1.pos;
-    if (segmentLength < 1e-6) return;
-    
-    const steps = Math.max(10, Math.ceil(segmentLength * ctx.canvas.width / 8));
-    const pathPoints = [];
-    
-    // Collect all path points first
-    for (let j = 0; j <= steps; j++) {
-        const t = p1.pos + (j / steps) * segmentLength;
-        const props = this.getInterpolatedPropertiesAt(t);
-        if (!props) continue;
+        let segmentStartPos = p1.pos;
+        let segmentEndPos = p2.pos;
+
+        if (this.state.isCyclic && segmentEndPos < segmentStartPos) {
+            segmentEndPos += 1.0;
+        }
+        const segmentLength = segmentEndPos - segmentStartPos;
         
-        const clamped = this.clampAbstractPoint(props.u, props.v, props.lightness);
-        const x = clamped.u * this.state.transform.scale + this.state.transform.offsetX;
-        const y = clamped.v * this.state.transform.scale + this.state.transform.offsetY;
+        if (segmentLength < 1e-6 && !this.state.isCyclic) return;
+
+        const steps = Math.max(10, Math.ceil(segmentLength * ctx.canvas.width / 8));
+        const pathPoints = [];
         
-        const isExactlyOnPlane = Math.abs(props.lightness - this.state.viewLightness) < 1e-10;
+        for (let j = 0; j <= steps; j++) {
+            const t = segmentStartPos + (j / steps) * segmentLength;
+            const props = this.getInterpolatedPropertiesAt(this.wrapPositionCyclic(t));
+            if (!props) continue;
+            
+            const clamped = this.clampAbstractPoint(props.u, props.v, props.lightness);
+            const x = clamped.u * this.state.transform.scale + this.state.transform.offsetX;
+            const y = clamped.v * this.state.transform.scale + this.state.transform.offsetY;
+            const isExactlyOnPlane = Math.abs(props.lightness - this.state.viewLightness) < 1e-10;
+            
+            pathPoints.push({ x, y, isOnPlane: isExactlyOnPlane, u: clamped.u, v: clamped.v });
+        }
         
-        pathPoints.push({ x, y, isOnPlane: isExactlyOnPlane, u: clamped.u, v: clamped.v });
-    }
-    
-    if (pathPoints.length < 2) return;
-    
-    // Check if entire path is on plane
-    const allOnPlane = pathPoints.every(p => p.isOnPlane);
-    
-    if (allOnPlane) {
-        // Draw solid line
-        ctx.strokeStyle = 'black';
-        ctx.lineWidth = C.LINE_WIDTH_DEFAULT;
+        if (pathPoints.length < 2) return;
+        
+        const allOnPlane = pathPoints.every(p => p.isOnPlane);
+        
+        if (allOnPlane) {
+            ctx.strokeStyle = 'black';
+            ctx.lineWidth = C.LINE_WIDTH_DEFAULT;
+            ctx.setLineDash([]);
+            ctx.globalAlpha = 0.7;
+            
+            ctx.beginPath();
+            ctx.moveTo(pathPoints[0].x, pathPoints[0].y);
+            for (let i = 1; i < pathPoints.length; i++) {
+                ctx.lineTo(pathPoints[i].x, pathPoints[i].y);
+            }
+            ctx.stroke();
+        } else {
+            ctx.strokeStyle = 'black';
+            ctx.lineWidth = C.LINE_WIDTH_DEFAULT;
+            ctx.globalAlpha = 0.4;
+            
+            const hsDistance = Math.sqrt(
+                (p2.hsPos.u - p1.hsPos.u) ** 2 + 
+                (p2.hsPos.v - p1.hsPos.v) ** 2
+            );
+            
+            const stableOffset = ((p1.hsPos.u * 73 + p1.hsPos.v * 127) * 50 + hsDistance * 100) % 8;
+            
+            ctx.setLineDash([4, 4]);
+            ctx.lineDashOffset = stableOffset;
+            
+            ctx.beginPath();
+            ctx.moveTo(pathPoints[0].x, pathPoints[0].y);
+            for (let i = 1; i < pathPoints.length; i++) {
+                ctx.lineTo(pathPoints[i].x, pathPoints[i].y);
+            }
+            ctx.stroke();
+            
+            ctx.lineDashOffset = 0;
+        }
+        
         ctx.setLineDash([]);
         ctx.globalAlpha = 0.7;
-        
-        ctx.beginPath();
-        ctx.moveTo(pathPoints[0].x, pathPoints[0].y);
-        for (let i = 1; i < pathPoints.length; i++) {
-            ctx.lineTo(pathPoints[i].x, pathPoints[i].y);
-        }
-        ctx.stroke();
-    } else {
-        // Draw dashed line with stable offset based on HS coordinates
-        ctx.strokeStyle = 'black';
-        ctx.lineWidth = C.LINE_WIDTH_DEFAULT;
-        ctx.globalAlpha = 0.4;
-        
-        // Calculate stable dash offset based on the HS coordinates of the endpoints
-        // This makes the dash pattern independent of lightness changes
-        const hsDistance = Math.sqrt(
-            (p2.hsPos.u - p1.hsPos.u) ** 2 + 
-            (p2.hsPos.v - p1.hsPos.v) ** 2
-        );
-        
-        // Use the HS position of p1 and the HS distance to create a stable pattern
-        const stableOffset = ((p1.hsPos.u * 73 + p1.hsPos.v * 127) * 50 + hsDistance * 100) % 8;
-        
-        ctx.setLineDash([4, 4]);
-        ctx.lineDashOffset = stableOffset;
-        
-        ctx.beginPath();
-        ctx.moveTo(pathPoints[0].x, pathPoints[0].y);
-        for (let i = 1; i < pathPoints.length; i++) {
-            ctx.lineTo(pathPoints[i].x, pathPoints[i].y);
-        }
-        ctx.stroke();
-        
-        ctx.lineDashOffset = 0; // Reset offset
     }
-    
-    ctx.setLineDash([]);
-    ctx.globalAlpha = 0.7;
-}
 
 drawLightnessIntersectionDots(ctx, tolerance) {
-    // Find where dashed connecting lines intersect the current lightness plane
-    for (let i = 0; i < this.state.points.length - 1; i++) {
-        const p1 = this.state.points[i];
-        const p2 = this.state.points[i + 1];
-        
-        const effectiveOrder = Math.max(p1.order, p2.order);
-        if (effectiveOrder === 0) continue;
-        
-        // Check if both points are exactly on the current plane (would be solid line)
-        const p1OnPlane = Math.abs(p1.lightness - this.state.viewLightness) < 1e-10;
-        const p2OnPlane = Math.abs(p2.lightness - this.state.viewLightness) < 1e-10;
-        
-        if (p1OnPlane && p2OnPlane) {
-            // Entire segment is solid, no dots needed
-            continue;
-        }
-        
-        // Check if the segment crosses the current lightness plane
-        const l1 = p1.lightness;
-        const l2 = p2.lightness;
-        const currentL = this.state.viewLightness;
-        
-        if ((l1 < currentL && l2 > currentL) || (l1 > currentL && l2 < currentL)) {
-            // Find intersection point
-            const intersectionT = this.findLightnessIntersection(p1, p2, currentL);
-            if (intersectionT !== null) {
-                const globalT = p1.pos + (p2.pos - p1.pos) * intersectionT;
-                const props = this.getInterpolatedPropertiesAt(globalT);
-                if (!props) continue;
-                
-                const clamped = this.clampAbstractPoint(props.u, props.v, props.lightness);
-                const x = clamped.u * this.state.transform.scale + this.state.transform.offsetX;
-                const y = clamped.v * this.state.transform.scale + this.state.transform.offsetY;
-                
-                // Draw black intersection dot
-                ctx.fillStyle = 'black';
-                ctx.beginPath();
-                ctx.arc(x, y, 2.5, 0, 2 * Math.PI);
-                ctx.fill();
+        const numSegments = this.state.isCyclic ? this.state.points.length : this.state.points.length - 1;
+
+        for (let i = 0; i < numSegments; i++) {
+            const p1 = this.state.points[i];
+            const p2 = this.state.points[(i + 1) % this.state.points.length];
+            
+            const effectiveOrder = Math.max(p1.order, p2.order);
+            if (effectiveOrder === 0) continue;
+            
+            const p1OnPlane = Math.abs(p1.lightness - this.state.viewLightness) < 1e-10;
+            const p2OnPlane = Math.abs(p2.lightness - this.state.viewLightness) < 1e-10;
+            
+            if (p1OnPlane && p2OnPlane) {
+                continue;
+            }
+            
+            const l1 = p1.lightness;
+            const l2 = p2.lightness;
+            const currentL = this.state.viewLightness;
+            
+            if ((l1 < currentL && l2 > currentL) || (l1 > currentL && l2 < currentL)) {
+                const intersectionT = this.findLightnessIntersection(p1, p2, currentL);
+                if (intersectionT !== null) {
+                    let segmentDuration = p2.pos - p1.pos;
+                    if (this.state.isCyclic && p2.pos < p1.pos) {
+                        segmentDuration += 1;
+                    }
+
+                    const globalT = p1.pos + intersectionT * segmentDuration;
+                    const props = this.getInterpolatedPropertiesAt(globalT);
+                    if (!props) continue;
+                    
+                    const clamped = this.clampAbstractPoint(props.u, props.v, props.lightness);
+                    const x = clamped.u * this.state.transform.scale + this.state.transform.offsetX;
+                    const y = clamped.v * this.state.transform.scale + this.state.transform.offsetY;
+                    
+                    ctx.fillStyle = 'black';
+                    ctx.beginPath();
+                    ctx.arc(x, y, 2.5, 0, 2 * Math.PI);
+                    ctx.fill();
+                }
             }
         }
     }
-}
 
 findLightnessIntersection(p1, p2, targetLightness) {
     const l1 = p1.lightness;
@@ -2237,73 +2517,9 @@ findLightnessIntersection(p1, p2, targetLightness) {
     return (finalT > 0.01 && finalT < 0.99) ? finalT : null;
 }
 
-    drawConnectingLine(ctx, type) {
-        if (this.state.points.length === 0) return;
-
-        ctx.save();
-        ctx.lineWidth = C.LINE_WIDTH_DEFAULT;
-        ctx.globalAlpha = 0.7;
-
-        if (type === 'hs') {
-            // HS line drawing is now handled directly in drawHSElements
-            ctx.restore();
-            return;
-        }
-        
-        // Handle lightness and alpha sliders
-        const glyphMargin = Math.ceil(C.NODE_RADIUS * 2.2);
-        const tickMargin = Math.ceil(C.CHECKERBOARD_SIZE / 2);
-        const totalMargin = glyphMargin + tickMargin;
-        
-        const validLeft = totalMargin;
-        const validRight = ctx.canvas.width - glyphMargin;
-        const validBottom = ctx.canvas.height - glyphMargin;
-        const validWidth = validRight - validLeft;
-        const validHeight = validBottom - totalMargin;
-        
-        if (validWidth <= 0) {
-            ctx.restore();
-            return;
-        }
-        
-        const gradient = ctx.createLinearGradient(validLeft, 0, validRight, 0);
-        const gradientSteps = Math.min(256, validWidth);
-        
-        for (let i = 0; i <= gradientSteps; i++) {
-            const t = i / gradientSteps;
-            const props = this.getInterpolatedPropertiesAt(t);
-            if (!props) continue;
-            
-            const clamped = this.clampAbstractPoint(props.u, props.v, props.lightness);
-            const color = this.abstractToRgb(clamped.u, clamped.v, props.lightness);
-            const {r, g, b} = this.clampColor(color);
-            
-            gradient.addColorStop(t, `rgba(${r}, ${g}, ${b}, ${props.alpha})`);
-        }
-        
-        ctx.beginPath();
-        const pathSteps = Math.max(2, validWidth / 2);
-        
-        for (let i = 0; i <= pathSteps; i++) {
-            const t = i / pathSteps;
-            const props = this.getInterpolatedPropertiesAt(t);
-            if (!props) continue;
-            
-            const x = validLeft + t * validWidth;
-            const value = type === 'lightness' ? props.lightness : props.alpha;
-            const y = validBottom - value * validHeight;
-            
-            if (i === 0) {
-                ctx.moveTo(x, y);
-            } else {
-                ctx.lineTo(x, y);
-            }
-        }
-        
-        ctx.strokeStyle = gradient;
-        ctx.stroke();
-        ctx.restore();
-    }
+    
+    
+   
 
 drawTicks(ctx, type) {
     // Don't draw ticks if the editor is not visible
@@ -2451,7 +2667,7 @@ createKaTeXLabel(expression, x, y, position, canvas) {
     }
 }
     
-        drawAlphaElements() {
+    drawAlphaElements() {
     const canvas = this.elements.interactiveCanvases['alpha'];
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
@@ -2468,15 +2684,21 @@ createKaTeXLabel(expression, x, y, position, canvas) {
     const validWidth = validRight - validLeft;
     const validHeight = validBottom - validTop;
     
-    // Always draw the alpha line, even with no points selected
-    const lineY = validBottom - this.state.viewAlpha * validHeight;
+    let alpha = this.state.viewAlpha;
+    if (this.state.activeDrag.pointId && this.state.activeDrag.type === 'alpha') {
+        const draggedPoint = this.getPointById(this.state.activeDrag.pointId);
+        if (draggedPoint) {
+            alpha = draggedPoint.alpha;
+        }
+    }
+    
+    const lineY = validBottom - alpha * validHeight;
     this.drawHorizontalLine(ctx, lineY);
     
     this.drawConnectingLine(ctx, 'alpha');
     this.drawTicks(ctx, 'alpha');
     
     this.state.points.forEach((point) => {
-        // pos=0 should be at validLeft, pos=1 should be at validRight
         const x = validLeft + point.pos * validWidth;
         const y = validBottom - point.alpha * validHeight;
         const color = this.abstractToRgb(point.hsPos.u, point.hsPos.v, point.lightness);
@@ -2573,79 +2795,78 @@ createKaTeXLabel(expression, x, y, position, canvas) {
         }
     
     updateUIReadouts() {
-        const lastSelectedPoint = this.getLastSelectedPoint();
-        const activeElement = document.activeElement;
+    const lastSelectedPoint = this.getLastSelectedPoint();
+    const activeElement = document.activeElement;
 
-        const isRgb = this.state.colorSpace === 'RGB_CUBE';
-        this.elements.rgbInputsContainer.classList.toggle('hidden', !isRgb);
-        this.elements.hslInputsContainer.classList.toggle('hidden', isRgb);
+    // Move this declaration to the top, before it's used
+    const isEditingColor = [
+        this.elements.rgbRInput, this.elements.rgbGInput, this.elements.rgbBInput,
+        this.elements.hslHInput, this.elements.hslSInput
+    ].includes(activeElement);
 
-        if (activeElement !== this.elements.lightnessInput) {
-            this.elements.lightnessInput.value = this.state.viewLightness.toFixed(2);
-        }
-        if (activeElement !== this.elements.alphaInput) {
-            this.elements.alphaInput.value = this.state.viewAlpha.toFixed(2);
-        }
-        if (activeElement !== this.elements.positionInput) {
-            this.elements.positionInput.value = lastSelectedPoint ? lastSelectedPoint.pos.toFixed(2) : '--';
-        }
+    const isRgb = this.state.colorSpace === 'RGB_CUBE';
+    this.elements.rgbInputsContainer.classList.toggle('hidden', !isRgb);
+    this.elements.hslInputsContainer.classList.toggle('hidden', isRgb);
 
-        if (lastSelectedPoint) {
-            this.elements.constantButton.classList.toggle('active', lastSelectedPoint.order === 0);
-            this.elements.linearButton.classList.toggle('active', lastSelectedPoint.order === 1);
-            this.elements.cubicButton.classList.toggle('active', lastSelectedPoint.order === 3);
-        } else {
-            this.elements.constantButton.classList.remove('active');
-            this.elements.linearButton.classList.remove('active');
-            this.elements.cubicButton.classList.remove('active');
-        }
+    if (activeElement !== this.elements.lightnessInput) {
+        this.elements.lightnessInput.value = this.state.viewLightness.toFixed(2);
+    }
+    if (activeElement !== this.elements.alphaInput) {
+        this.elements.alphaInput.value = this.state.viewAlpha.toFixed(2);
+    }
+    if (activeElement !== this.elements.positionInput) {
+        this.elements.positionInput.value = lastSelectedPoint ? lastSelectedPoint.pos.toFixed(2) : '--';
+    }
 
-        this.elements.cycleButton.classList.toggle('active', this.state.isCyclic);
+    if (lastSelectedPoint) {
+        this.elements.constantButton.classList.toggle('active', lastSelectedPoint.order === 0);
+        this.elements.linearButton.classList.toggle('active', lastSelectedPoint.order === 1);
+        this.elements.cubicButton.classList.toggle('active', lastSelectedPoint.order === 3);
+    } else {
+        this.elements.constantButton.classList.remove('active');
+        this.elements.linearButton.classList.remove('active');
+        this.elements.cubicButton.classList.remove('active');
+    }
 
-        const isEditingColor = [
-            this.elements.rgbRInput, this.elements.rgbGInput, this.elements.rgbBInput,
-            this.elements.hslHInput, this.elements.hslSInput
-        ].includes(activeElement);
+    // Update cycle button text
+    this.elements.cycleButton.textContent = this.state.isCyclic ? 'Uncycle' : 'Cycle';
 
-        if (!lastSelectedPoint) {
-            if (!isEditingColor) {
-                this.elements.rgbRInput.value = '';
-                this.elements.rgbGInput.value = '';
-                this.elements.rgbBInput.value = '';
-                this.elements.hslHInput.value = '';
-                this.elements.hslSInput.value = '';
-            }
-            this.elements.selectButton.disabled = this.state.points.length === 0;
-            this.elements.reverseButton.disabled = this.state.points.length === 0;
-            this.elements.cycleButton.disabled = this.state.points.length < 2;
-            this.drawColormapPreview();
-            this.drawSelectedColorPreview();
-            return;
-        }
+    this.elements.selectButton.disabled = this.state.points.length === 0;
+    this.elements.reverseButton.disabled = this.state.points.length === 0;
+    this.elements.cycleButton.disabled = this.state.points.length < 2;
 
-        this.elements.selectButton.disabled = false;
-        this.elements.reverseButton.disabled = false;
-        this.elements.cycleButton.disabled = this.state.points.length < 2;
-
+    if (!lastSelectedPoint) {
         if (!isEditingColor) {
-            const { lightness, hsPos } = lastSelectedPoint;
-            const color = this.abstractToRgb(hsPos.u, hsPos.v, lightness);
-
-            if (isRgb) {
-                const { r, g, b } = this.clampColor(color);
-                this.elements.rgbRInput.value = r;
-                this.elements.rgbGInput.value = g;
-                this.elements.rgbBInput.value = b;
-            } else {
-                const hsl = this.rgbToHsl(color.r, color.g, color.b);
-                this.elements.hslHInput.value = hsl.h.toFixed(2);
-                this.elements.hslSInput.value = hsl.s.toFixed(2);
-            }
+            this.elements.rgbRInput.value = '';
+            this.elements.rgbGInput.value = '';
+            this.elements.rgbBInput.value = '';
+            this.elements.hslHInput.value = '';
+            this.elements.hslSInput.value = '';
         }
-
         this.drawColormapPreview();
         this.drawSelectedColorPreview();
+        return;
     }
+
+    if (!isEditingColor) {
+        const { lightness, hsPos } = lastSelectedPoint;
+        const color = this.abstractToRgb(hsPos.u, hsPos.v, lightness);
+
+        if (isRgb) {
+            const { r, g, b } = this.clampColor(color);
+            this.elements.rgbRInput.value = r;
+            this.elements.rgbGInput.value = g;
+            this.elements.rgbBInput.value = b;
+        } else {
+            const hsl = this.rgbToHsl(color.r, color.g, color.b);
+            this.elements.hslHInput.value = hsl.h.toFixed(2);
+            this.elements.hslSInput.value = hsl.s.toFixed(2);
+        }
+    }
+
+    this.drawColormapPreview();
+    this.drawSelectedColorPreview();
+}
         
         drawSelectedColorPreview() {
    const canvas = this.elements.selectedColorPreviewCanvas;
@@ -2672,93 +2893,7 @@ createKaTeXLabel(expression, x, y, position, canvas) {
    }
 }
 
-    drawConnectingLine(ctx, type) {
-        if (this.state.points.length === 0) return;
-
-        ctx.save();
-        ctx.lineWidth = C.LINE_WIDTH_DEFAULT;
-        ctx.globalAlpha = 0.7;
-
-        if (type === 'hs') {
-            const tolerance = 0.02;
-            
-            for (let i = 0; i < this.state.points.length - 1; i++) {
-                const p1 = this.state.points[i];
-                const p2 = this.state.points[i + 1];
-                
-                const effectiveOrder = Math.max(p1.order, p2.order);
-                if (effectiveOrder === 0) continue;
-                
-                this.drawHSSegment(ctx, p1, p2, effectiveOrder, tolerance);
-            }
-            
-            if (this.state.isCyclic && this.state.points.length >= 2) {
-                const lastPoint = this.state.points[this.state.points.length - 1];
-                const firstPoint = this.state.points[0];
-                const effectiveOrder = Math.max(lastPoint.order, firstPoint.order);
-                if (effectiveOrder !== 0) {
-                    this.drawHSSegment(ctx, lastPoint, firstPoint, effectiveOrder, tolerance);
-                }
-            }
-            
-            this.drawLightnessIntersectionDots(ctx, tolerance);
-            
-        } else {
-            const glyphMargin = Math.ceil(C.NODE_RADIUS * 2.2);
-            const tickMargin = Math.ceil(C.CHECKERBOARD_SIZE / 2);
-            const totalMargin = glyphMargin + tickMargin;
-            
-            const validLeft = totalMargin;
-            const validRight = ctx.canvas.width - glyphMargin;
-            const validBottom = ctx.canvas.height - glyphMargin;
-            const validWidth = validRight - validLeft;
-            const validHeight = validBottom - totalMargin;
-            
-            if (validWidth <= 0) {
-                ctx.restore();
-                return;
-            }
-            
-            const gradient = ctx.createLinearGradient(validLeft, 0, validRight, 0);
-            const gradientSteps = Math.min(256, validWidth);
-            
-            for (let i = 0; i <= gradientSteps; i++) {
-                const t = i / gradientSteps;
-                const props = this.getInterpolatedPropertiesAt(t);
-                if (!props) continue;
-                
-                const clamped = this.clampAbstractPoint(props.u, props.v, props.lightness);
-                const color = this.abstractToRgb(clamped.u, clamped.v, props.lightness);
-                const {r, g, b} = this.clampColor(color);
-                
-                gradient.addColorStop(t, `rgba(${r}, ${g}, ${b}, ${props.alpha})`);
-            }
-            
-            ctx.beginPath();
-            const pathSteps = Math.max(2, validWidth / 2);
-            
-            for (let i = 0; i <= pathSteps; i++) {
-                const t = i / pathSteps;
-                const props = this.getInterpolatedPropertiesAt(t);
-                if (!props) continue;
-                
-                const x = validLeft + t * validWidth;
-                const value = type === 'lightness' ? props.lightness : props.alpha;
-                const y = validBottom - value * validHeight;
-                
-                if (i === 0) {
-                    ctx.moveTo(x, y);
-                } else {
-                    ctx.lineTo(x, y);
-                }
-            }
-            
-            ctx.strokeStyle = gradient;
-            ctx.stroke();
-        }
-        
-        ctx.restore();
-    }
+    
 
 
     wrapPositionCyclic(pos) {
@@ -2792,125 +2927,86 @@ createKaTeXLabel(expression, x, y, position, canvas) {
     }
 
     getInterpolatedPropertiesAt(t) {
-        if (this.state.points.length === 0) return null;
-        if (this.state.points.length === 1) {
-            const { hsPos, lightness, alpha, order } = this.state.points[0];
-            return { 
-                u: hsPos.u, 
-                v: hsPos.v, 
-                lightness: Math.max(0, Math.min(1, lightness)), 
-                alpha: Math.max(0, Math.min(1, alpha)), 
-                order 
-            };
+        const points = this.state.points;
+        const n = points.length;
+
+        if (n === 0) return null;
+        if (n === 1) {
+            const p = points[0];
+            return { u: p.hsPos.u, v: p.hsPos.v, lightness: p.lightness, alpha: p.alpha, order: p.order };
         }
 
-        if (this.state.isCyclic) {
-            t = ((t % 1) + 1) % 1;
-        }
+        const isCyclic = this.state.isCyclic;
+        const effectiveT = isCyclic ? ((t % 1) + 1) % 1 : t;
 
-        let segmentIndex = -1;
         let p1, p2;
-        
-        if (t <= this.state.points[0].pos) {
-            if (this.state.isCyclic) {
-                p1 = this.state.points[this.state.points.length - 1];
-                p2 = this.state.points[0];
-                const segmentDuration = 1 - p1.pos + p2.pos;
-                if (segmentDuration < 1e-6) {
-                    const { hsPos, lightness, alpha, order } = p2;
-                    return { u: hsPos.u, v: hsPos.v, lightness: Math.max(0, Math.min(1, lightness)), alpha: Math.max(0, Math.min(1, alpha)), order };
-                }
-                const tLocal = (t + 1 - p1.pos) / segmentDuration;
-                segmentIndex = this.state.points.length - 1;
-            } else {
-                const { hsPos, lightness, alpha, order } = this.state.points[0];
-                return { u: hsPos.u, v: hsPos.v, lightness: Math.max(0, Math.min(1, lightness)), alpha: Math.max(0, Math.min(1, alpha)), order };
-            }
-        } else if (t >= this.state.points[this.state.points.length - 1].pos) {
-            if (this.state.isCyclic) {
-                p1 = this.state.points[this.state.points.length - 1];
-                p2 = this.state.points[0];
-                const segmentDuration = 1 - p1.pos + p2.pos;
-                if (segmentDuration < 1e-6) {
-                    const { hsPos, lightness, alpha, order } = p1;
-                    return { u: hsPos.u, v: hsPos.v, lightness: Math.max(0, Math.min(1, lightness)), alpha: Math.max(0, Math.min(1, alpha)), order };
-                }
-                const tLocal = (t - p1.pos) / segmentDuration;
-                segmentIndex = this.state.points.length - 1;
-            } else {
-                const { hsPos, lightness, alpha, order } = this.state.points[this.state.points.length - 1];
-                return { u: hsPos.u, v: hsPos.v, lightness: Math.max(0, Math.min(1, lightness)), alpha: Math.max(0, Math.min(1, alpha)), order };
-            }
-        } else {
-            for (let i = 0; i < this.state.points.length - 1; i++) {
-                if (t >= this.state.points[i].pos && t <= this.state.points[i + 1].pos) {
-                    segmentIndex = i;
-                    p1 = this.state.points[i];
-                    p2 = this.state.points[i + 1];
-                    break;
-                }
+        let segmentIndex = -1;
+
+        // First, search for the segment containing t. This is the main logical change.
+        for (let i = 0; i < n - 1; i++) {
+            if (effectiveT >= points[i].pos && effectiveT <= points[i + 1].pos) {
+                segmentIndex = i;
+                p1 = points[i];
+                p2 = points[i + 1];
+                break;
             }
         }
 
-        if (segmentIndex === -1 || !p1 || !p2) return null;
+        // If no segment was found, handle cyclic wrap-around or non-cyclic boundary cases.
+        if (segmentIndex === -1) {
+            if (isCyclic) {
+                segmentIndex = n - 1;
+                p1 = points[n - 1];
+                p2 = points[0];
+            } else {
+                // Not cyclic, so t is outside the range. Return the nearest endpoint color.
+                const p = (effectiveT < points[0].pos) ? points[0] : points[n - 1];
+                return { u: p.hsPos.u, v: p.hsPos.v, lightness: p.lightness, alpha: p.alpha, order: p.order };
+            }
+        }
+        
+        if (!p1 || !p2) return null;
 
-        const segmentDuration = p2.pos - p1.pos + (this.state.isCyclic && segmentIndex === this.state.points.length - 1 ? 1 : 0);
-        if (segmentDuration < 1e-6) {
-            const { hsPos, lightness, alpha } = p1;
-            return { u: hsPos.u, v: hsPos.v, lightness: Math.max(0, Math.min(1, lightness)), alpha: Math.max(0, Math.min(1, alpha)), order: p1.order };
+        let segmentDuration = p2.pos - p1.pos;
+        if (isCyclic && segmentIndex === n - 1) {
+            segmentDuration += 1;
+        }
+
+        // Avoid division by zero for points at the same position
+        if (Math.abs(segmentDuration) < 1e-9) {
+            return { u: p1.hsPos.u, v: p1.hsPos.v, lightness: p1.lightness, alpha: p1.alpha, order: p1.order };
         }
 
         let tLocal;
-        if (this.state.isCyclic && segmentIndex === this.state.points.length - 1) {
-            tLocal = t >= p1.pos ? (t - p1.pos) / segmentDuration : (t + 1 - p1.pos) / segmentDuration;
+        if (isCyclic && segmentIndex === n - 1) {
+            tLocal = (effectiveT >= p1.pos) ? (effectiveT - p1.pos) / segmentDuration : (effectiveT + 1 - p1.pos) / segmentDuration;
         } else {
-            tLocal = (t - p1.pos) / segmentDuration;
+            tLocal = (effectiveT - p1.pos) / segmentDuration;
         }
-
-        const effectiveOrder = Math.max(p1.order, p2.order);
         
-        if (effectiveOrder === 0) {
-            if (tLocal < 0.5) {
-                const { hsPos, lightness, alpha } = p1;
-                return { u: hsPos.u, v: hsPos.v, lightness: Math.max(0, Math.min(1, lightness)), alpha: Math.max(0, Math.min(1, alpha)), order: 0 };
-            } else {
-                const { hsPos, lightness, alpha } = p2;
-                return { u: hsPos.u, v: hsPos.v, lightness: Math.max(0, Math.min(1, lightness)), alpha: Math.max(0, Math.min(1, alpha)), order: 0 };
-            }
-        }
+        const effectiveOrder = Math.max(p1.order, p2.order);
 
-        if (effectiveOrder === 1) {
-            return {
-                u: p1.hsPos.u + (p2.hsPos.u - p1.hsPos.u) * tLocal,
-                v: p1.hsPos.v + (p2.hsPos.v - p1.hsPos.v) * tLocal,
-                lightness: Math.max(0, Math.min(1, p1.lightness + (p2.lightness - p1.lightness) * tLocal)),
-                alpha: Math.max(0, Math.min(1, p1.alpha + (p2.alpha - p1.alpha) * tLocal)),
-                order: 1
-            };
+        if (effectiveOrder === 0) {
+            const p = (tLocal < 0.5) ? p1 : p2;
+            return { u: p.hsPos.u, v: p.hsPos.v, lightness: p.lightness, alpha: p.alpha, order: p.order };
         }
 
         if (effectiveOrder === 3) {
             const result = this.evaluateCubicSpline(segmentIndex, tLocal);
-            return result ? {
-                u: result.u,
-                v: result.v,
-                lightness: Math.max(0, Math.min(1, result.lightness)),
-                alpha: Math.max(0, Math.min(1, result.alpha)),
-                order: 2
-            } : {
-                u: p1.hsPos.u + (p2.hsPos.u - p1.hsPos.u) * tLocal,
-                v: p1.hsPos.v + (p2.hsPos.v - p1.hsPos.v) * tLocal,
-                lightness: Math.max(0, Math.min(1, p1.lightness + (p2.lightness - p1.lightness) * tLocal)),
-                alpha: Math.max(0, Math.min(1, p1.alpha + (p2.alpha - p1.alpha) * tLocal)),
-                order: 1
-            };
+            if (result) {
+                const L = Math.max(0, Math.min(1, result.lightness));
+                const A = Math.max(0, Math.min(1, result.alpha));
+                const clamped = this.clampAbstractPoint(result.u, result.v, L);
+                return { u: clamped.u, v: clamped.v, lightness: L, alpha: A, order: 2 };
+            }
         }
 
+        // Fallback to linear
         return {
             u: p1.hsPos.u + (p2.hsPos.u - p1.hsPos.u) * tLocal,
             v: p1.hsPos.v + (p2.hsPos.v - p1.hsPos.v) * tLocal,
-            lightness: Math.max(0, Math.min(1, p1.lightness + (p2.lightness - p1.lightness) * tLocal)),
-            alpha: Math.max(0, Math.min(1, p1.alpha + (p2.alpha - p1.alpha) * tLocal)),
+            lightness: p1.lightness + (p2.lightness - p1.lightness) * tLocal,
+            alpha: p1.alpha + (p2.alpha - p1.alpha) * tLocal,
             order: 1
         };
     }
@@ -2928,29 +3024,54 @@ createKaTeXLabel(expression, x, y, position, canvas) {
         }
     
     clampAbstractPoint(u, v, lightness) {
-       if (this.state.colorSpace === 'HSL_DI_CONE') {
-           const radius = Math.sqrt(u * u + v * v);
-           const radiusAtL = 1 - Math.abs(2 * lightness - 1);
-           if (radius > radiusAtL && radiusAtL > 1e-6) {
-               return { u: u / radius * radiusAtL, v: v / radius * radiusAtL };
-           }
-           return { u, v };
-       }
+    if (this.state.colorSpace === 'HSL_DI_CONE') {
+        const radius = Math.sqrt(u * u + v * v);
+        const radiusAtL = 1 - Math.abs(2 * lightness - 1);
+        if (radius > radiusAtL && radiusAtL > 1e-6) {
+            return { u: u / radius * radiusAtL, v: v / radius * radiusAtL };
+        }
+        return { u, v };
+    }
 
-       let { r, g, b } = this.abstractToRgb(u, v, lightness);
-       if (this.isValidColor(r, g, b)) {
-           return { u, v };
-       }
+    if (lightness <= 0.01 || lightness >= 0.99) {
+        return { u: 0, v: 0 };
+    }
 
-       const dummyScale = 100;
-       const dummyOffset = 0;
-       const result = this.findClosestPointOnRgbGamut(u, v, lightness, dummyScale, dummyOffset, dummyOffset, -1000, -1000, 2000, 2000);
-       
-       const finalU = (result.x - dummyOffset) / dummyScale;
-       const finalV = (result.y - dummyOffset) / dummyScale;
-       
-       return { u: finalU, v: finalV };
-   }
+    let { r, g, b } = this.abstractToRgb(u, v, lightness);
+    if (this.isValidColor(r, g, b)) {
+        return { u, v };
+    }
+
+    let bestU = 0;
+    let bestV = 0;
+    let minDistance = Infinity;
+    
+    const searchRadius = Math.max(Math.abs(u), Math.abs(v), 0.5);
+    const gridSteps = 50;
+    
+    for (let i = 0; i <= gridSteps; i++) {
+        for (let j = 0; j <= gridSteps; j++) {
+            const testU = u + (i / gridSteps - 0.5) * 2 * searchRadius;
+            const testV = v + (j / gridSteps - 0.5) * 2 * searchRadius;
+            
+            const testColor = this.abstractToRgb(testU, testV, lightness);
+            if (this.isValidColor(testColor.r, testColor.g, testColor.b)) {
+                const distance = Math.sqrt((testU - u) ** 2 + (testV - v) ** 2);
+                if (distance < minDistance) {
+                    minDistance = distance;
+                    bestU = testU;
+                    bestV = testV;
+                }
+            }
+        }
+    }
+    
+    if (minDistance < Infinity) {
+        return { u: bestU, v: bestV };
+    }
+    
+    return { u: 0, v: 0 };
+}
     
         hslToRgb(h, s, l) {
             if (s === 0) {
@@ -3401,85 +3522,79 @@ createKaTeXLabel(expression, x, y, position, canvas) {
    }
     
     handleSliderPointDrag(point, x, y, canvas, dragType) {
-        const { offsets } = this.state.activeDrag;
-        const glyphMargin = Math.ceil(C.NODE_RADIUS * 2.2);
-        const tickMargin = Math.ceil(C.CHECKERBOARD_SIZE / 2);
-        const totalMargin = glyphMargin + tickMargin;
-        
-        const minX = totalMargin;
-        const maxX = canvas.width - glyphMargin;
-        const minY = totalMargin;
-        const maxY = canvas.height - glyphMargin;
-        let constrainedX = Math.max(minX, Math.min(maxX, x));
-        const constrainedY = Math.max(minY, Math.min(maxY, y));
+    const { offsets } = this.state.activeDrag;
+    const glyphMargin = Math.ceil(C.NODE_RADIUS * 2.2);
+    const tickMargin = Math.ceil(C.CHECKERBOARD_SIZE / 2);
+    const totalMargin = glyphMargin + tickMargin;
+    
+    const minX = totalMargin;
+    const maxX = canvas.width - glyphMargin;
+    const minY = totalMargin;
+    const maxY = canvas.height - glyphMargin;
+    let constrainedX = Math.max(minX, Math.min(maxX, x));
+    const constrainedY = Math.max(minY, Math.min(maxY, y));
 
-        const snappedY = this.findSnapPosition(constrainedY, canvas.height, dragType, point.id);
-        
-        const validWidth = canvas.width - totalMargin - glyphMargin;
-        const validHeight = canvas.height - totalMargin - glyphMargin;
-        const normalizedY = (snappedY - totalMargin) / validHeight;
-        const primaryValue = Math.max(0, Math.min(1, 1 - normalizedY));
-        
-        let normalizedX = (constrainedX - totalMargin) / validWidth;
-        let primaryPos = normalizedX;
+    const snappedY = this.findSnapPosition(y, canvas.height, dragType, point.id);
+    
+    const gradientLeft = totalMargin;
+    const gradientRight = canvas.width - glyphMargin;
+    const gradientTop = totalMargin;
+    const gradientBottom = canvas.height - glyphMargin;
+    const gradientWidth = gradientRight - gradientLeft;
+    const gradientHeight = gradientBottom - gradientTop;
 
-        if (this.state.isCyclic) {
-            if (normalizedX < 0) {
-                primaryPos = 1 + normalizedX;
-            } else if (normalizedX > 1) {
-                primaryPos = normalizedX - 1;
-            }
-            primaryPos = this.wrapPositionCyclic(primaryPos);
-        } else {
-            primaryPos = Math.max(0, Math.min(1, normalizedX));
+    const normalizedY = (snappedY - gradientTop) / gradientHeight;
+    const primaryValue = Math.max(0, Math.min(1, 1 - normalizedY));
+
+    let normalizedX = (x - gradientLeft) / gradientWidth;
+    let primaryPos = normalizedX;
+
+    if (this.state.isCyclic) {
+        if (normalizedX < 0) {
+            primaryPos = 1 + normalizedX;
+        } else if (normalizedX > 1) {
+            primaryPos = normalizedX - 1;
         }
-
-        let minPossibleValue = 0;
-        let maxPossibleValue = 1;
-        let minPossiblePos = this.state.isCyclic ? -Infinity : 0;
-        let maxPossiblePos = this.state.isCyclic ? Infinity : 1;
-
-        if (!this.state.isCyclic) {
-            for (const p of this.state.points) {
-                if (offsets.has(p.id)) {
-                    const offset = offsets.get(p.id);
-                    const offsetValue = offset[dragType];
-                    minPossibleValue = Math.max(minPossibleValue, -offsetValue);
-                    maxPossibleValue = Math.min(maxPossibleValue, 1 - offsetValue);
-                    const offsetPos = offset.pos;
-                    minPossiblePos = Math.max(minPossiblePos, -offsetPos);
-                    maxPossiblePos = Math.min(maxPossiblePos, 1 - offsetPos);
-                }
-            }
-        }
-
-        const clampedPrimaryValue = Math.max(minPossibleValue, Math.min(maxPossibleValue, primaryValue));
-        const clampedPrimaryPos = this.state.isCyclic ? primaryPos : Math.max(minPossiblePos, Math.min(maxPossiblePos, primaryPos));
-
-        for (const p of this.state.points) {
-            if (offsets.has(p.id)) {
-                const offset = offsets.get(p.id);
-                const newValue = clampedPrimaryValue + offset[dragType];
-                let newPos = clampedPrimaryPos + offset.pos;
-                
-                if (this.state.isCyclic) {
-                    newPos = this.wrapPositionCyclic(newPos);
-                }
-                
-                p.pos = newPos;
-                
-                if (dragType === 'lightness') {
-                    const oldLightness = p.lightness;
-                    p.lightness = newValue;
-                    this.adjustPointForNewLightness(p, oldLightness);
-                    this.state.viewLightness = p.lightness;
-                } else {
-                    p.alpha = newValue;
-                    this.state.viewAlpha = p.alpha;
-                }
-            }
-        }
-
-        this.sortPoints();
+        primaryPos = this.wrapPositionCyclic(primaryPos);
+    } else {
+        primaryPos = Math.max(0, Math.min(1, normalizedX));
     }
+
+    for (const p of this.state.points) {
+        if (offsets.has(p.id)) {
+            const offset = offsets.get(p.id);
+            const targetValue = primaryValue + offset[dragType];
+            let targetPos = primaryPos + offset.pos;
+            
+            if (this.state.isCyclic) {
+                targetPos = this.wrapPositionCyclic(targetPos);
+            } else {
+                targetPos = Math.max(0, Math.min(1, targetPos));
+            }
+            
+            p.pos = targetPos;
+            
+            if (dragType === 'lightness') {
+                const targetLightness = Math.max(0, Math.min(1, targetValue));
+                p.lightness = targetLightness;
+                
+                const originalColor = this.abstractToRgb(p.originalHsPos.u, p.originalHsPos.v, targetLightness);
+                if (this.isValidColor(originalColor.r, originalColor.g, originalColor.b)) {
+                    p.hsPos = { ...p.originalHsPos };
+                } else {
+                    const clamped = this.clampAbstractPoint(p.originalHsPos.u, p.originalHsPos.v, targetLightness);
+                    p.hsPos.u = clamped.u;
+                    p.hsPos.v = clamped.v;
+                }
+                
+                this.state.viewLightness = targetLightness;
+            } else {
+                p.alpha = Math.max(0, Math.min(1, targetValue));
+                this.state.viewAlpha = p.alpha;
+            }
+        }
+    }
+
+    this.sortPoints();
+}
 }

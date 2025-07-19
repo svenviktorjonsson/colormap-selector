@@ -3,7 +3,6 @@
 // --- Colors ---
 // Defines the color palette used for UI elements like borders, text, and selections.
 export const COLOR_SELECTION_BLUE = '#3b82f6';
-export const COLOR_HORIZONTAL_LINE = 'rgba(0, 0, 0, 0.7)';
 export const COLOR_CHECKER_DARK = '#4a5568';
 export const COLOR_CHECKER_LIGHT = '#718096';
 export const DBL_CLICK_SPEED = 300; // The time in ms to detect a double click.
