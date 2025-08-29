@@ -13,9 +13,7 @@ extensions = ('.py',".html",".js",".css", '.json', '.md', '.txt','.toml','.mbar'
 exclude_dirs = (
     '.git',
     '__pycache__',
-    '.pytest_cache',
-    'dist',
-    'tests',
+    '.pytest_cache'
     'logs',
     "node_modules"
 )

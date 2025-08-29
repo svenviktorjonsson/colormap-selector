@@ -1,0 +1,9 @@
+tests/
+node_modules/
+.git/
+.vscode/
+.DS_Store
+*.log
+*.tmp
+.env
+coverage/

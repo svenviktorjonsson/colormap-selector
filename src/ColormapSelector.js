@@ -1,7 +1,7 @@
 // In a file named 'ColormapSelector.js'
 import * as C from './constants.js';
-import namedColorsData from './named_colors.js';
-import namedColormapsData from './named_colormaps.js';
+import namedColorsData from './namedColors.js';
+import namedColormapsData from './namedColormaps.js';
 
 export default class ColormapSelector {
     constructor(customColors = {}, customColormaps = {}) {

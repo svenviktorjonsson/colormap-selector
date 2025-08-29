@@ -3,20 +3,899 @@ Root: C:\Users\viktor.jonsson\OneDrive - CellMax Technologies AB\Documents\Repos
 Relevant files and folders (excluding specified patterns):
 
 .
-├── ColormapSelector.js
 ├── README.md
-├── constants.js
-├── named_colormaps.js
-├── named_colors.js
 ├── package.json
-├── style.css
-├── test-app.js
-├── test.html
+├── dist/
+│   ├── style.css
+├── src/
+│   ├── ColormapSelector.js
+│   ├── constants.js
+│   ├── named_colormaps.js
+│   ├── named_colors.js
+├── tests/
+│   ├── index.html
+│   ├── style.css
+│   ├── test.js
 
 
 === File Contents ===
 
-=== ColormapSelector.js ===
+=== README.md ===
+# Colormap Selector
+
+A professional, standalone JavaScript component for creating and editing colormaps and color gradients. This component is self-contained, creates its own UI, and can be used as a popup in any web application. It offers a rich interface for manipulating color points in both RGB and HSL color spaces with advanced features like cyclic colormaps and multiple interpolation modes.
+
+![Colormap Selector Interface](screenshot.png)
+
+## Features
+
+- **Dual Color Spaces**: Edit colors in either RGB Cube or HSL Di-Cone space with seamless switching
+- **Interactive UI**: Drag-and-drop points to adjust color, lightness, alpha, and position
+- **Multiple Interpolation Modes**: Constant, linear, and cubic spline interpolation between points
+- **Cyclic Colormaps**: Enable cycling to create seamless looping gradients
+- **Undo/Redo**: Full support for undo and redo actions (`Ctrl+Z` / `Ctrl+Y`)
+- **Preset Management**: Load named presets and create, save, rename, or delete your own custom colors and colormaps
+- **Smart Point Selection**: Single, double, and triple-click selection with modifier key support
+- **Self-Contained**: Creates its own DOM elements and can be injected into any page as a popup
+- **No Dependencies**: Written in pure JavaScript with no external libraries required
+
+## Installation
+
+This package is designed to be installed directly from its GitHub repository using npm.
+
+In your project's terminal, run the following command:
+
+```bash
+npm install github:svenviktorjonsson/colormap-selector
+```
+
+This will add the package to your `node_modules` folder and list it in your `package.json` dependencies.
+
+## Usage
+
+To use the Colormap Selector, you need to import the class and its corresponding stylesheet. Then, you can create an instance and call its `show()` method, typically in response to a user action like a button click.
+
+### HTML Setup
+
+First, ensure you have an element in your HTML to trigger the color picker.
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Colormap Selector Example</title>
+    <!-- Link to the component's stylesheet -->
+    <link rel="stylesheet" href="node_modules/colormap-selector/styles.css">
+</head>
+<body>
+    <button id="open-editor-button">Open Colormap Editor</button>
+
+    <!-- Link to your application's script -->
+    <script type="module" src="app.js"></script>
+</body>
+</html>
+```
+
+### JavaScript Implementation
+
+In your main application script (`app.js`), import and initialize the component.
+
+```javascript
+import ColormapSelector from 'colormap-selector';
+
+// Wait for the DOM to be ready
+document.addEventListener('DOMContentLoaded', async () => {
+    
+    // 1. Create a single instance of the editor for your application.
+    const colorEditor = new ColormapSelector();
+
+    // 2. Initialize the editor. This is an async operation that builds the UI
+    //    and loads the necessary color preset files.
+    //    It's crucial to `await` this call.
+    await colorEditor.initialize();
+
+    // 3. Add the editor's main element to your page's body.
+    document.body.appendChild(colorEditor.getElement());
+
+    // 4. Set up an event listener to show the editor.
+    const openEditorButton = document.getElementById('open-editor-button');
+    if (openEditorButton) {
+        openEditorButton.addEventListener('click', (e) => {
+            // Show the picker near the user's mouse click.
+            colorEditor.show();
+        });
+    }
+
+    // 5. Listen for colormap selection events
+    colorEditor.getElement().addEventListener('select', (e) => {
+        const colormapData = e.detail;
+        console.log('Selected colormap:', colormapData);
+        // colormapData contains:
+        // - points: array of {pos, alpha, color, order}
+        // - isCyclic: boolean indicating if colormap is cyclic
+    });
+});
+```
+
+## Interface Overview
+
+The colormap editor consists of several key panels:
+
+### Color Space Panel (Left)
+- **RGB Cube**: Traditional RGB color space representation
+- **HSL Di-Cone**: Hue-Saturation-Lightness color space
+- Switch between color spaces using the tab buttons at the top
+
+### Lightness Panel (Top Center)
+- Vertical slider showing the lightness gradient
+- Drag points vertically to adjust lightness values
+- Horizontal position represents the position in the colormap
+
+### Alpha Panel (Bottom Center)
+- Vertical slider for transparency control
+- Drag points vertically to adjust alpha (transparency) values
+- Horizontal position represents the position in the colormap
+
+### Color Presets (Top Right)
+- Named colors for quick selection
+- Click to apply color to selected points
+- Add custom colors using the "+" button
+- Right-click custom colors to rename or delete
+
+### Colormap Presets (Bottom Right)
+- Pre-built colormaps like "viridis", "plasma", "jet"
+- Custom saved colormaps
+- Click to load a complete colormap
+- Add custom colormaps using the "+" button
+
+### Selected Color Panel (Far Right Top)
+- Shows preview of currently selected color point
+- Input fields for precise value entry
+- Interpolation mode buttons (Constant, Linear, Cubic)
+
+### Current Colormap Panel (Far Right Bottom)
+- Preview of the complete colormap
+- **Reverse** button to flip the colormap
+- **Cycle** button to enable seamless looping
+- **Close** and **Select** buttons
+
+## User Interactions
+
+### Point Selection
+- **Single Click**: Select a single point
+- **Double Click**: Select the clicked point and its immediate neighbors
+- **Triple Click**: Select all points (keeps clicked point as primary)
+- **Ctrl/Cmd + Click**: Add/remove points from selection
+- **Shift + Click**: Add point to selection
+
+### Point Creation
+- **Click in empty space**: Create a new point in the HS color space panel
+- New points automatically adjust existing point positions
+
+### Point Editing
+- **Drag in HS panel**: Change color hue and saturation
+- **Drag in Lightness panel**: Change lightness and position
+- **Drag in Alpha panel**: Change transparency and position
+- **Input fields**: Enter precise numerical values
+
+### Interpolation Modes
+- **Constant**: Sharp transitions (step function)
+- **Linear**: Smooth linear transitions
+- **Cubic**: Smooth curved transitions using cubic splines
+
+### Cycling Mode
+When enabled, the colormap loops seamlessly from the last point back to the first:
+- Automatically rescales points when both endpoints are at 0 and 1
+- Maintains smooth transitions in cyclic mode
+- Perfect for creating tileable gradients or animations
+
+### Keyboard Shortcuts
+- `Ctrl+Z` / `Cmd+Z`: Undo
+- `Ctrl+Y` / `Cmd+Y`: Redo
+- `Delete` / `Backspace`: Delete selected points
+- `Ctrl+A` / `Cmd+A`: Select all points (when mouse is over canvas)
+- `Escape`: Deselect all points
+
+## API Reference
+
+### Constructor
+```javascript
+new ColormapSelector(customColors = {}, customColormaps = {})
+```
+Creates a new instance. Optionally provide custom colors and colormaps to pre-populate.
+
+### Methods
+
+#### `initialize()`
+Async method that must be called after creating the instance. Initializes the component and loads preset data.
+
+#### `show()`
+Displays the editor component as a popup.
+
+#### `hide()`
+Hides the editor component.
+
+#### `getElement()`
+Returns the main DOM element for appending to your page.
+
+### Events
+
+#### `select`
+Fired when user clicks the "Select" button. Event detail contains:
+```javascript
+{
+    points: [
+        {
+            pos: 0.0,        // Position along colormap (0-1)
+            alpha: 1.0,      // Transparency (0-1)
+            color: [255, 0, 0], // RGB color array
+            order: 1         // Interpolation order
+        },
+        // ... more points
+    ],
+    isCyclic: false          // Whether colormap is cyclic
+}
+```
+
+#### `dataChanged`
+Fired when custom colors or colormaps are modified. Use this to save user data.
+
+## Advanced Features
+
+### Custom Color Spaces
+The component supports two color space representations:
+- **RGB Cube**: Direct RGB manipulation with orthogonal projection
+- **HSL Di-Cone**: Intuitive hue-saturation-lightness representation
+
+### Gamut Clamping
+Colors are automatically clamped to valid RGB gamut boundaries when editing in HSL space or when lightness values change.
+
+### Position Scaling
+When adding new points, existing points are automatically repositioned to maintain visual distribution, similar to professional gradient editors.
+
+### State Management
+- Full undo/redo stack with proper state snapshots
+- Dirty state tracking to prevent data loss
+- Automatic sorting of points by position
+
+### Custom Data Persistence
+The component integrates with localStorage for saving custom presets, but you can override this by listening to the `dataChanged` event and implementing your own storage solution.
+
+## Browser Compatibility
+
+- Modern browsers with ES6+ support
+- No external dependencies required
+- Self-contained CSS styling
+
+## License
+
+MIT License - see LICENSE file for details.
+
+=== package.json ===
+{
+  "name": "colormap-selector",
+  "version": "1.1.0",
+  "description": "A popup colormap and color gradient editor component.",
+  "main": "ColormapSelector.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/svenviktorjonsson/colormap-selector.git"
+  },
+  "keywords": [
+    "color",
+    "picker",
+    "colormap",
+    "gradient",
+    "editor",
+    "javascript"
+  ],
+  "author": "Viktor Jonsson",
+  "license": "MIT",
+  "dependencies": {
+    "katex": "^0.16.22"
+  }
+}
+
+
+=== dist/style.css ===
+/* ========== GLOBAL STYLES ========== */
+body {
+    font-family: 'Inter', sans-serif;
+    touch-action: none;
+    user-select: none;
+}
+
+/* ========== MAIN LAYOUT ========== */
+.color-editor-layout {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    grid-template-rows: minmax(200px, 1fr) minmax(200px, 1fr);
+    gap: 0.375rem;
+    height: 100%;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+#hs-pane-wrapper {
+    display: flex;
+    flex-direction: column;
+    background-color: rgba(45, 55, 72, 0.5);
+    border-radius: 0.375rem;
+    overflow: hidden;
+    min-height: 0;
+    padding: 0;
+    grid-column: 1 / span 2; 
+    grid-row: 1 / span 2;
+}
+#lightness-wrapper { grid-column: 3 / span 2; grid-row: 1 / span 1; }
+#alpha-wrapper { grid-column: 3 / span 2; grid-row: 2 / span 1; }
+#colors-presets-wrapper { grid-column: 5 / span 1; grid-row: 1 / span 1; }
+#colormaps-presets-wrapper { grid-column: 5 / span 1; grid-row: 2 / span 1; }
+#selected-color-section { grid-column: 6 / span 1; grid-row: 1 / span 1; }
+#current-colormap-section { grid-column: 6 / span 1; grid-row: 2 / span 1; }
+
+/* ========== UNIFIED CONTAINER STYLES ========== */
+.preset-wrapper,
+.control-section {
+    display: flex;
+    flex-direction: column;
+    background-color: rgba(45, 55, 72, 0.5);
+    border-radius: 0.375rem;
+    overflow: hidden;
+    min-height: 0;
+    padding: 0;
+}
+
+/* ========== PANEL HEADERS ========== */
+.panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    height: 28px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: #a0aec0;
+    text-transform: uppercase;
+    background-color: #3a4652;
+    border-radius: 0.375rem 0.375rem 0 0;
+    padding: 0;
+    margin: 0;
+    border-bottom: none;
+}
+
+.preset-category-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+    height: 28px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: #a0aec0;
+    text-transform: uppercase;
+    background-color: #3a4652;
+    border-radius: 0.375rem 0.375rem 0 0;
+    padding: 0 6px;
+    margin: 0;
+    border-bottom: none;
+}
+
+.preset-category-title {
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: #a0aec0;
+    text-transform: uppercase;
+    flex-grow: 1;
+}
+
+.section-title {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    height: 28px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: #a0aec0;
+    text-transform: uppercase;
+    background-color: #3a4652;
+    border-radius: 0.375rem 0.375rem 0 0;
+    padding: 0 6px;
+    margin: 0;
+    border-bottom: none;
+}
+
+/* ========== CANVAS & INTERACTIVE AREAS ========== */
+#lightness-wrapper,
+#alpha-wrapper {
+    height: 100%;
+}
+
+.canvas-container {
+    position: relative;
+    cursor: grab;
+    width: 100%;
+    flex-grow: 1;
+    min-height: 0;
+    margin: 0;
+    padding: 0;
+}
+
+#hs-canvas-container {
+    cursor: crosshair;
+    flex-grow: 1;
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+}
+
+.canvas-container > canvas {
+    position: absolute; 
+    top: 0; 
+    left: 0;
+    width: 100%; 
+    height: 100%;
+    display: block;
+    margin: 0;
+    padding: 0;
+}
+
+.interactive-canvas {
+    position: absolute; 
+    top: 0; 
+    left: 0;
+    width: 100%; 
+    height: 100%;
+    pointer-events: auto; 
+    z-index: 10;
+    margin: 0;
+    padding: 0;
+}
+.hs-interactive { cursor: crosshair; }
+.lightness-interactive, .alpha-interactive { cursor: ns-resize; }
+
+/* ========== CONTROL SECTIONS ========== */
+.control-section {
+    padding: 0;
+}
+
+.control-section > *:not(.section-title) {
+    margin-left: 0.375rem;
+    margin-right: 0.375rem;
+}
+
+.control-section > .preview-container {
+    margin-top: 0.375rem;
+    margin-bottom: 0.5rem;
+    margin-left: 0.375rem;
+    margin-right: 0.375rem;
+}
+
+.control-section > .space-y-2 {
+    padding-left: 0;
+    padding-right: 0;
+    padding-bottom: 0.375rem;
+    margin-left: 0.375rem;
+    margin-right: 0.375rem;
+}
+
+.preview-container {
+    width: calc(100% - 0.75rem);
+    height: 1.75rem; 
+    border-radius: 0.25rem;
+    border: 1px solid #4a5568; 
+    position: relative;
+    flex-shrink: 0; 
+    overflow: hidden; 
+    margin: 0;
+    margin-bottom: 0.5rem;
+}
+
+/* ========== PRESET LISTS ========== */
+.preset-items-container {
+    padding: 0.25rem;
+    flex-grow: 1;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: #4a5568 #2d3748;
+    margin: 0;
+}
+
+.preset-items-container::-webkit-scrollbar { width: 6px; }
+.preset-items-container::-webkit-scrollbar-track { background: #2d3748; }
+.preset-items-container::-webkit-scrollbar-thumb { background-color: #4a5568; border-radius: 3px; }
+
+.preset-item {
+    display: flex; 
+    align-items: center; 
+    gap: 6px; 
+    font-size: 0.975rem;
+    padding: 3px 6px; 
+    cursor: pointer; 
+    border-radius: 3px;
+    transition: background-color 0.15s ease-in-out;
+    white-space: nowrap; 
+    overflow: hidden; 
+    text-overflow: ellipsis;
+    margin: 0;
+}
+
+.preset-item:hover { background-color: #4a5568; }
+
+.preset-icon {
+    width: 21px; 
+    height: 21px; 
+    border: 1px solid rgba(0,0,0,0.2);
+    border-radius: 2px; 
+    flex-shrink: 0;
+    margin: 0;
+}
+
+#colormaps-presets-wrapper .preset-icon { width: 72px; height: 18px; }
+
+.add-preset-btn {
+    background: none; 
+    border: none; 
+    color: #a0aec0;
+    font-size: 14px; 
+    font-weight: bold; 
+    cursor: pointer; 
+    padding: 0 3px;
+    flex-shrink: 0;
+    margin: 0;
+}
+.add-preset-btn:hover { color: #ffffff; }
+
+/* ========== INPUT FIELDS ========== */
+.input-label {
+    font-size: 0.65rem; 
+    font-weight: 500; 
+    color: #a0aec0;
+    text-align: center; 
+    line-height: 1.2; 
+    margin: 0;
+    margin-bottom: 0.125rem;
+}
+
+.value-input {
+    font-family: 'Inter', sans-serif; 
+    font-size: 0.75rem;
+    background-color: #4a5568; 
+    color: #e2e8f0;
+    text-align: center; 
+    border-radius: 0.25rem; 
+    width: 100%;
+    padding: 0.2rem; 
+    border: 1px solid #718096;
+    height: 1.5rem; 
+    box-sizing: border-box;
+    margin: 0;
+}
+
+.value-input:focus {
+    outline: none; 
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.5);
+}
+
+.rgb-r-input,
+.rgb-g-input,
+.rgb-b-input {
+    background-color: #4a5568;
+}
+
+.hsl-inputs-grid {
+    display: grid; 
+    grid-template-columns: 1fr 1fr; 
+    gap: 0.25rem;
+    margin: 0;
+}
+
+.values-grid {
+    display: grid; 
+    grid-template-columns: 1fr 1fr 1fr; 
+    gap: 0.25rem;
+}
+
+.values-grid .input-label {
+    font-size: 0.65rem;
+    font-weight: 500;
+    color: #a0aec0;
+    text-align: center;
+    line-height: 1.2;
+    margin: 0;
+    margin-bottom: 0.125rem;
+}
+
+.values-grid .value-input {
+    width: 100%;
+    box-sizing: border-box;
+}
+
+/* ========== INTERPOLATION BUTTONS ========== */
+.interpolation-button {
+    height: 1.5rem;
+    border: 1px solid #718096;
+    background-color: #4a5568;
+    color: white;
+    border-radius: 0.25rem;
+    cursor: pointer;
+    font-size: 0.75rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    margin: 0;
+}
+
+.interpolation-button:hover {
+    background-color: #6B7280;
+}
+
+.interpolation-button.active {
+    background-color: #3B82F6;
+    border-color: #2563EB;
+}
+
+.interpolation-button:focus {
+    outline: none;
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.5);
+}
+
+/* ========== TAB BUTTONS ========== */
+.tab-button {
+    padding: 2px 6px; 
+    border-radius: 4px; 
+    border: 1px solid transparent;
+    font-size: 0.65rem; 
+    font-weight: 500; 
+    color: #a0aec0;
+    background-color: transparent; 
+    cursor: pointer; 
+    transition: all 0.2s ease-in-out;
+    margin: 0;
+}
+.tab-button.active { color: #ffffff; background-color: #3b82f6; }
+.tab-button:hover:not(.active) { background-color: #4a5568; }
+
+/* ========== BUTTON LAYOUT ========== */
+.button-container {
+    margin: 0.375rem;
+    margin-top: 0.375rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.button-row {
+    display: flex;
+    gap: 0.25rem;
+    width: 100%;
+}
+
+.reverse-button {
+    flex: 1;
+    padding: 6px; 
+    font-size: 0.75rem; 
+    font-weight: 500;
+    color: #ffffff; 
+    background-color: #8b5cf6;
+    border: none; 
+    border-radius: 4px; 
+    cursor: pointer;
+    transition: all 0.2s ease-in-out;
+    height: 2rem; 
+    box-sizing: border-box;
+}
+
+.reverse-button:hover { 
+    background-color: #7c3aed;
+    box-shadow: 
+        0 2px 4px rgba(0, 0, 0, 0.1),
+        inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+.cycle-button {
+    flex: 1;
+    padding: 6px; 
+    font-size: 0.75rem; 
+    font-weight: 500;
+    color: #ffffff; 
+    background-color: #10b981;
+    border: none; 
+    border-radius: 4px; 
+    cursor: pointer;
+    transition: all 0.2s ease-in-out;
+    height: 2rem; 
+    box-sizing: border-box;
+}
+
+.cycle-button:hover { 
+    background-color: #059669;
+    box-shadow: 
+        0 2px 4px rgba(0, 0, 0, 0.1),
+        inset 0 1px 0 rgba(255, 255, 255, 0.3),
+        0 0 8px rgba(16, 185, 129, 0.3);
+}
+
+/* Override the active state to look the same as normal state */
+.cycle-button.active {
+    background-color: #10b981;
+    box-shadow: none;
+}
+
+.cycle-button.active:hover {
+    background-color: #059669;
+}
+.close-button {
+    width: 100%;
+    padding: 6px; 
+    font-size: 0.75rem; 
+    font-weight: 500;
+    color: #ffffff; 
+    background-color: #6b7280;
+    border: none; 
+    border-radius: 4px; 
+    cursor: pointer;
+    transition: background-color 0.2s ease-in-out;
+    height: 2rem; 
+    box-sizing: border-box;
+}
+
+.close-button:hover { 
+    background-color: #4b5563; 
+}
+
+.select-button {
+    width: 100%;
+    padding: 6px; 
+    font-size: 0.75rem; 
+    font-weight: 500;
+    color: #ffffff; 
+    background-color: #3b82f6;
+    border: none; 
+    border-radius: 4px; 
+    cursor: pointer;
+    transition: background-color 0.2s ease-in-out;
+    height: 2rem; 
+    box-sizing: border-box;
+}
+
+.select-button:hover { 
+    background-color: #2563eb; 
+}
+
+.reverse-button:disabled,
+.cycle-button:disabled {
+    background-color: #4a5568;
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
+.reverse-button:disabled:hover,
+.cycle-button:disabled:hover {
+    background-color: #4a5568;
+}
+
+.select-button:disabled {
+    background-color: #4a5568;
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
+.select-button:disabled:hover {
+    background-color: #4a5568;
+}
+
+/* ========== UTILITY CLASSES ========== */
+.hidden { display: none !important; }
+.space-y-2 > * + * { margin-top: 0.25rem; }
+.text-center { text-align: center; }
+.grid { display: grid; }
+.grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.gap-2 { gap: 0.5rem; }
+.mb-1 { margin-bottom: 0.25rem; }
+.absolute { position: absolute; }
+.top-0 { top: 0; }
+.left-0 { left: 0; }
+.w-full { width: 100%; }
+.h-full { height: 100%; }
+
+/* ========== MODAL AND CONTEXT MENU ========== */
+.modal-overlay {
+    position: fixed; 
+    top: 0; 
+    left: 0; 
+    width: 100%; 
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.6); 
+    display: flex;
+    justify-content: center; 
+    align-items: center; 
+    z-index: 1000;
+}
+
+.modal-dialog {
+    background-color: #2d3748; 
+    padding: 20px; 
+    border-radius: 8px;
+    box-shadow: 0 5px 15px rgba(0,0,0,0.3); 
+    width: 300px;
+    display: flex; 
+    flex-direction: column; 
+    gap: 16px;
+}
+
+.modal-title { 
+    font-size: 16px; 
+    font-weight: 500; 
+    color: #e2e8f0; 
+    text-align: center; 
+}
+
+.modal-input {
+    width: 100%; 
+    background-color: #4a5568; 
+    border: 1px solid #718096;
+    border-radius: 4px; 
+    padding: 8px; 
+    color: #e2e8f0;
+}
+
+.modal-buttons { 
+    display: flex; 
+    justify-content: flex-end; 
+    gap: 8px; 
+}
+
+.modal-button {
+    padding: 6px 12px; 
+    border: none; 
+    border-radius: 4px;
+    cursor: pointer; 
+    font-size: 14px; 
+    font-weight: 500;
+}
+
+.modal-button-primary { background-color: #3b82f6; color: white; }
+.modal-button-secondary { background-color: #4a5568; color: #e2e8f0; }
+
+.context-menu {
+    position: fixed; 
+    z-index: 1012;
+    background-color: #2d3748;
+    border: 1px solid #4a5568; 
+    border-radius: 6px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.2); 
+    padding: 4px;
+    display: flex; 
+    flex-direction: column;
+}
+
+.context-menu-item {
+    background: none; 
+    border: none; 
+    color: #e2e8f0; 
+    text-align: left;
+    padding: 6px 12px; 
+    cursor: pointer; 
+    border-radius: 4px; 
+    font-size: 14px;
+}
+
+.context-menu-item:hover { background-color: #3b82f6; }
+
+#colormap-selector-wrapper {
+    cursor: move;
+}
+
+=== src/ColormapSelector.js ===
 // In a file named 'ColormapSelector.js'
 import * as C from './constants.js';
 import namedColorsData from './named_colors.js';
@@ -421,12 +1300,19 @@ createCubicButtonIcon() {
         return el;
     };
 
-    this.wrapper = createEl('div', { id: 'colormap-selector-wrapper', className: 'color-editor-layout' });
+    this.wrapper = createEl('div', { id: 'colormap-selector-wrapper' });
+    this.wrapper = createEl('div', { id: 'colormap-selector-wrapper' });
     this.wrapper.style.cssText = `
         position: fixed; display: none; z-index: 1000; background-color: #1a202c; 
         padding: 0.5rem; border-radius: 0.5rem; box-shadow: 0 10px 25px rgba(0,0,0,0.3); 
-        top: 50px; left: 50px; height: 50vh; max-width: 90vw; min-height: 400px; min-width: 600px;
+        top: 50px; left: 50px; width: 1100px; height: 500px; max-width: 95vw; max-height: 90vh;
     `;
+
+    this.elements.hsBgCanvas = createEl('canvas', { id: 'hs-bg-canvas' });
+    this.elements.lightnessBgCanvas = createEl('canvas', { id: 'lightness-bg-canvas' });
+    this.elements.alphaBgCanvas = createEl('canvas', { id: 'alpha-bg-canvas' });
+    this.elements.colormapPreviewCanvas = createEl('canvas', { id: 'colormap-preview-canvas' });
+    this.elements.selectedColorPreviewCanvas = createEl('canvas', { id: 'selected-color-preview-canvas' });
 
     const hsPane = createEl('div', { id: 'hs-pane-wrapper', className: 'preset-wrapper' });
     const lightnessPane = createEl('div', { id: 'lightness-wrapper', className: 'preset-wrapper' });
@@ -442,19 +1328,22 @@ createCubicButtonIcon() {
     hsHeader.append(this.elements.tabRgbCube, this.elements.tabHslCone);
     const hsContainer = createEl('div', { id: 'hs-canvas-container', className: 'canvas-container' });
     const hsNodesContainer = createEl('div', { id: 'hs-nodes-container', className: 'absolute top-0 left-0 w-full h-full' });
-    hsContainer.append(createEl('canvas', { id: 'hs-bg-canvas' }), hsNodesContainer);
+    this.elements.hsNodesContainer = hsNodesContainer;
+    hsContainer.append(this.elements.hsBgCanvas, hsNodesContainer);
     hsPane.append(hsHeader, hsContainer);
 
     const lightnessHeader = createEl('h2', { className: 'panel-header', text: 'Lightness' });
     const lightnessContainer = createEl('div', { id: 'lightness-slider-container', className: 'canvas-container' });
     const lightnessNodesContainer = createEl('div', { id: 'lightness-nodes-container', className: 'absolute top-0 left-0 w-full h-full' });
-    lightnessContainer.append(createEl('canvas', { id: 'lightness-bg-canvas' }), lightnessNodesContainer);
+    this.elements.lightnessNodesContainer = lightnessNodesContainer;
+    lightnessContainer.append(this.elements.lightnessBgCanvas, lightnessNodesContainer);
     lightnessPane.append(lightnessHeader, lightnessContainer);
 
     const alphaHeader = createEl('h2', { className: 'panel-header', text: 'Alpha' });
     const alphaContainer = createEl('div', { id: 'alpha-slider-container', className: 'canvas-container' });
     const alphaNodesContainer = createEl('div', { id: 'alpha-nodes-container', className: 'absolute top-0 left-0 w-full h-full' });
-    alphaContainer.append(createEl('canvas', { id: 'alpha-bg-canvas' }), alphaNodesContainer);
+    this.elements.alphaNodesContainer = alphaNodesContainer;
+    alphaContainer.append(this.elements.alphaBgCanvas, alphaNodesContainer);
     alphaPane.append(alphaHeader, alphaContainer);
 
     const colorsHeader = createEl('div', { className: 'preset-category-header' });
@@ -467,18 +1356,21 @@ createCubicButtonIcon() {
 
     const scTitle = createEl('h3', { className: 'section-title', text: 'Selected Color' });
     const scPreviewContainer = createEl('div', { className: 'preview-container' });
-    scPreviewContainer.append(createEl('canvas', { id: 'selected-color-preview-canvas' }));
+    scPreviewContainer.append(this.elements.selectedColorPreviewCanvas);
     const inputsWrapper = createEl('div', { className: 'space-y-2' });
     
     const valuesGrid = createEl('div', { className: 'values-grid' });
     valuesGrid.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.25rem;';
     
     const lightnessGroup = createEl('div');
-    lightnessGroup.append(createEl('h3', { className: 'input-label', text: 'Lightness' }), createEl('input', { type: 'text', id: 'lightness-input', className: 'value-input' }));
+    this.elements.lightnessInput = createEl('input', { type: 'text', id: 'lightness-input', className: 'value-input' });
+    lightnessGroup.append(createEl('h3', { className: 'input-label', text: 'Lightness' }), this.elements.lightnessInput);
     const alphaGroup = createEl('div');
-    alphaGroup.append(createEl('h3', { className: 'input-label', text: 'Alpha' }), createEl('input', { type: 'text', id: 'alpha-input', className: 'value-input' }));
+    this.elements.alphaInput = createEl('input', { type: 'text', id: 'alpha-input', className: 'value-input' });
+    alphaGroup.append(createEl('h3', { className: 'input-label', text: 'Alpha' }), this.elements.alphaInput);
     const positionGroup = createEl('div');
-    positionGroup.append(createEl('h3', { className: 'input-label', text: 'Position' }), createEl('input', { type: 'text', id: 'position-input', className: 'value-input' }));
+    this.elements.positionInput = createEl('input', { type: 'text', id: 'position-input', className: 'value-input' });
+    positionGroup.append(createEl('h3', { className: 'input-label', text: 'Position' }), this.elements.positionInput);
     valuesGrid.append(lightnessGroup, alphaGroup, positionGroup);
     
     this.elements.rgbInputsContainer = createEl('div', { id: 'rgb-inputs-container' });
@@ -486,12 +1378,17 @@ createCubicButtonIcon() {
     const redInput = createEl('input', { type: 'text', id: 'rgb-r-input', placeholder: 'R', className: 'value-input' });
     const greenInput = createEl('input', { type: 'text', id: 'rgb-g-input', placeholder: 'G', className: 'value-input' });
     const blueInput = createEl('input', { type: 'text', id: 'rgb-b-input', placeholder: 'B', className: 'value-input' });
+    this.elements.rgbRInput = redInput;
+    this.elements.rgbGInput = greenInput;
+    this.elements.rgbBInput = blueInput;
     this.elements.rgbInputsContainer.append(redInput, greenInput, blueInput);
     
     this.elements.hslInputsContainer = createEl('div', { id: 'hsl-inputs-container', className: 'hidden' });
     this.elements.hslInputsContainer.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr; gap: 0.25rem; margin-top: 0.25rem;';
     const hueInput = createEl('input', { type: 'text', id: 'hsl-h-input', placeholder: 'H', className: 'value-input' });
     const satInput = createEl('input', { type: 'text', id: 'hsl-s-input', placeholder: 'S', className: 'value-input' });
+    this.elements.hslHInput = hueInput;
+    this.elements.hslSInput = satInput;
     this.elements.hslInputsContainer.append(hueInput, satInput);
     
     const interpolationTitle = createEl('h3', { className: 'input-label', text: 'Interpolation' });
@@ -515,7 +1412,7 @@ createCubicButtonIcon() {
     
     const cmHeader = createEl('h3', { className: 'section-title text-center', text: 'Current Colormap' });
     const cmPreviewContainer = createEl('div', { className: 'preview-container' });
-    cmPreviewContainer.append(createEl('canvas', { id: 'colormap-preview-canvas' }));
+    cmPreviewContainer.append(this.elements.colormapPreviewCanvas);
     
     const buttonContainer = createEl('div', { className: 'button-container' });
     this.elements.reverseButton = createEl('button', { id: 'reverse-button', className: 'reverse-button', text: 'Reverse' });
@@ -536,9 +1433,9 @@ createCubicButtonIcon() {
     this.elements.modalOverlay.append(modalDialog);
     this.elements.contextMenu = createEl('div', { id: 'context-menu', className: 'context-menu hidden' });
 
-    gridContainer.append(hsPane, lightnessPane, this.elements.colorsPresetsWrapper, selectedColorPane, alphaPane, this.elements.colormapsPresetsWrapper, colormapPreviewPane);
-    this.wrapper.append(gridContainer, this.elements.modalOverlay, this.elements.contextMenu);
-
+    this.wrapper.className = 'color-editor-layout';
+    this.wrapper.append(hsPane, lightnessPane, this.elements.colorsPresetsWrapper, selectedColorPane, alphaPane, this.elements.colormapsPresetsWrapper, colormapPreviewPane, this.elements.modalOverlay, this.elements.contextMenu);
+    
     this.createInteractiveCanvas(hsNodesContainer, 'hs');
     this.createInteractiveCanvas(lightnessNodesContainer, 'lightness');
     this.createInteractiveCanvas(alphaNodesContainer, 'alpha');
@@ -2588,9 +3485,7 @@ findLightnessIntersection(p1, p2, targetLightness) {
     
     
    
-
 drawTicks(ctx, type) {
-    // Don't draw ticks if the editor is not visible
     if (this.wrapper.style.display === 'none') {
         return;
     }
@@ -2611,70 +3506,59 @@ drawTicks(ctx, type) {
     const validWidth = validRight - validLeft;
     const validHeight = validBottom - validTop;
     
-    // Clear any existing tick labels for this canvas
     this.clearTickLabels(canvas);
     
-    // Draw tick marks and create KaTeX labels
     const tickValues = [0, 0.2, 0.4, 0.6, 0.8, 1];
     const tickExpressions = ['0', '0.2', '0.4', '0.6', '0.8', '1'];
     
-    // Get canvas position relative to document
     const canvasRect = canvas.getBoundingClientRect();
-    const scrollLeft = window.pageXOffset || document.documentElement.scrollLeft;
-    const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+    const wrapperRect = this.wrapper.getBoundingClientRect();
     
-    // Bottom ticks
     for (let i = 0; i < tickValues.length; i++) {
         const value = tickValues[i];
         const x = Math.floor(validLeft + value * validWidth) + 0.5;
         
         if (value === 0) {
-            // Draw extended 0 tick (axis) from bottom to top of valid area
             ctx.beginPath();
             ctx.moveTo(x, validTop);
             ctx.lineTo(x, validBottom + 5);
             ctx.stroke();
         } else {
-            // Draw normal tick mark
             ctx.beginPath();
             ctx.moveTo(x, validBottom);
             ctx.lineTo(x, validBottom + 5);
             ctx.stroke();
         }
         
-        // Create KaTeX label positioned over canvas
-        const labelX = canvasRect.left + scrollLeft + x;
-        const labelY = canvasRect.top + scrollTop + validBottom + 8;
+        const labelX = canvasRect.left - wrapperRect.left + x;
+        const labelY = canvasRect.top - wrapperRect.top + validBottom + 8;
         this.createKaTeXLabel(tickExpressions[i], labelX, labelY, 'bottom', canvas);
     }
     
-    // Left ticks
     for (let i = 0; i < tickValues.length; i++) {
         const value = tickValues[i];
         const y = Math.floor(validBottom - value * validHeight) + 0.5;
         
         if (value === 0) {
-            // Draw extended 0 tick (axis) from left to right of valid area
             ctx.beginPath();
             ctx.moveTo(validLeft - 5, y);
             ctx.lineTo(validRight, y);
             ctx.stroke();
         } else {
-            // Draw normal tick mark
             ctx.beginPath();
             ctx.moveTo(validLeft - 5, y);
             ctx.lineTo(validLeft, y);
             ctx.stroke();
         }
         
-        // Create KaTeX label positioned over canvas
-        const labelX = canvasRect.left + scrollLeft + validLeft - 8;
-        const labelY = canvasRect.top + scrollTop + y;
+        const labelX = canvasRect.left - wrapperRect.left + validLeft - 8;
+        const labelY = canvasRect.top - wrapperRect.top + y;
         this.createKaTeXLabel(tickExpressions[i], labelX, labelY, 'left', canvas);
     }
     
     ctx.restore();
 }
+
 
 clearTickLabels(canvas) {
     // Remove existing tick labels for this canvas
@@ -2691,7 +3575,7 @@ createKaTeXLabel(expression, x, y, position, canvas) {
     const isFallback = typeof katex === 'undefined';
 
     div.style.cssText = `
-        position: fixed;
+        position: absolute;
         left: ${x}px;
         top: ${y}px;
         color: white;
@@ -2717,7 +3601,7 @@ createKaTeXLabel(expression, x, y, position, canvas) {
         }
     }
     
-    document.body.appendChild(div);
+    this.wrapper.appendChild(div);
 }
     
     drawAlphaElements() {
@@ -3652,258 +4536,7 @@ createKaTeXLabel(expression, x, y, position, canvas) {
 }
 }
 
-=== README.md ===
-# Colormap Selector
-
-A professional, standalone JavaScript component for creating and editing colormaps and color gradients. This component is self-contained, creates its own UI, and can be used as a popup in any web application. It offers a rich interface for manipulating color points in both RGB and HSL color spaces with advanced features like cyclic colormaps and multiple interpolation modes.
-
-![Colormap Selector Interface](screenshot.png)
-
-## Features
-
-- **Dual Color Spaces**: Edit colors in either RGB Cube or HSL Di-Cone space with seamless switching
-- **Interactive UI**: Drag-and-drop points to adjust color, lightness, alpha, and position
-- **Multiple Interpolation Modes**: Constant, linear, and cubic spline interpolation between points
-- **Cyclic Colormaps**: Enable cycling to create seamless looping gradients
-- **Undo/Redo**: Full support for undo and redo actions (`Ctrl+Z` / `Ctrl+Y`)
-- **Preset Management**: Load named presets and create, save, rename, or delete your own custom colors and colormaps
-- **Smart Point Selection**: Single, double, and triple-click selection with modifier key support
-- **Self-Contained**: Creates its own DOM elements and can be injected into any page as a popup
-- **No Dependencies**: Written in pure JavaScript with no external libraries required
-
-## Installation
-
-This package is designed to be installed directly from its GitHub repository using npm.
-
-In your project's terminal, run the following command:
-
-```bash
-npm install github:svenviktorjonsson/colormap-selector
-```
-
-This will add the package to your `node_modules` folder and list it in your `package.json` dependencies.
-
-## Usage
-
-To use the Colormap Selector, you need to import the class and its corresponding stylesheet. Then, you can create an instance and call its `show()` method, typically in response to a user action like a button click.
-
-### HTML Setup
-
-First, ensure you have an element in your HTML to trigger the color picker.
-
-```html
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Colormap Selector Example</title>
-    <!-- Link to the component's stylesheet -->
-    <link rel="stylesheet" href="node_modules/colormap-selector/styles.css">
-</head>
-<body>
-    <button id="open-editor-button">Open Colormap Editor</button>
-
-    <!-- Link to your application's script -->
-    <script type="module" src="app.js"></script>
-</body>
-</html>
-```
-
-### JavaScript Implementation
-
-In your main application script (`app.js`), import and initialize the component.
-
-```javascript
-import ColormapSelector from 'colormap-selector';
-
-// Wait for the DOM to be ready
-document.addEventListener('DOMContentLoaded', async () => {
-    
-    // 1. Create a single instance of the editor for your application.
-    const colorEditor = new ColormapSelector();
-
-    // 2. Initialize the editor. This is an async operation that builds the UI
-    //    and loads the necessary color preset files.
-    //    It's crucial to `await` this call.
-    await colorEditor.initialize();
-
-    // 3. Add the editor's main element to your page's body.
-    document.body.appendChild(colorEditor.getElement());
-
-    // 4. Set up an event listener to show the editor.
-    const openEditorButton = document.getElementById('open-editor-button');
-    if (openEditorButton) {
-        openEditorButton.addEventListener('click', (e) => {
-            // Show the picker near the user's mouse click.
-            colorEditor.show();
-        });
-    }
-
-    // 5. Listen for colormap selection events
-    colorEditor.getElement().addEventListener('select', (e) => {
-        const colormapData = e.detail;
-        console.log('Selected colormap:', colormapData);
-        // colormapData contains:
-        // - points: array of {pos, alpha, color, order}
-        // - isCyclic: boolean indicating if colormap is cyclic
-    });
-});
-```
-
-## Interface Overview
-
-The colormap editor consists of several key panels:
-
-### Color Space Panel (Left)
-- **RGB Cube**: Traditional RGB color space representation
-- **HSL Di-Cone**: Hue-Saturation-Lightness color space
-- Switch between color spaces using the tab buttons at the top
-
-### Lightness Panel (Top Center)
-- Vertical slider showing the lightness gradient
-- Drag points vertically to adjust lightness values
-- Horizontal position represents the position in the colormap
-
-### Alpha Panel (Bottom Center)
-- Vertical slider for transparency control
-- Drag points vertically to adjust alpha (transparency) values
-- Horizontal position represents the position in the colormap
-
-### Color Presets (Top Right)
-- Named colors for quick selection
-- Click to apply color to selected points
-- Add custom colors using the "+" button
-- Right-click custom colors to rename or delete
-
-### Colormap Presets (Bottom Right)
-- Pre-built colormaps like "viridis", "plasma", "jet"
-- Custom saved colormaps
-- Click to load a complete colormap
-- Add custom colormaps using the "+" button
-
-### Selected Color Panel (Far Right Top)
-- Shows preview of currently selected color point
-- Input fields for precise value entry
-- Interpolation mode buttons (Constant, Linear, Cubic)
-
-### Current Colormap Panel (Far Right Bottom)
-- Preview of the complete colormap
-- **Reverse** button to flip the colormap
-- **Cycle** button to enable seamless looping
-- **Close** and **Select** buttons
-
-## User Interactions
-
-### Point Selection
-- **Single Click**: Select a single point
-- **Double Click**: Select the clicked point and its immediate neighbors
-- **Triple Click**: Select all points (keeps clicked point as primary)
-- **Ctrl/Cmd + Click**: Add/remove points from selection
-- **Shift + Click**: Add point to selection
-
-### Point Creation
-- **Click in empty space**: Create a new point in the HS color space panel
-- New points automatically adjust existing point positions
-
-### Point Editing
-- **Drag in HS panel**: Change color hue and saturation
-- **Drag in Lightness panel**: Change lightness and position
-- **Drag in Alpha panel**: Change transparency and position
-- **Input fields**: Enter precise numerical values
-
-### Interpolation Modes
-- **Constant**: Sharp transitions (step function)
-- **Linear**: Smooth linear transitions
-- **Cubic**: Smooth curved transitions using cubic splines
-
-### Cycling Mode
-When enabled, the colormap loops seamlessly from the last point back to the first:
-- Automatically rescales points when both endpoints are at 0 and 1
-- Maintains smooth transitions in cyclic mode
-- Perfect for creating tileable gradients or animations
-
-### Keyboard Shortcuts
-- `Ctrl+Z` / `Cmd+Z`: Undo
-- `Ctrl+Y` / `Cmd+Y`: Redo
-- `Delete` / `Backspace`: Delete selected points
-- `Ctrl+A` / `Cmd+A`: Select all points (when mouse is over canvas)
-- `Escape`: Deselect all points
-
-## API Reference
-
-### Constructor
-```javascript
-new ColormapSelector(customColors = {}, customColormaps = {})
-```
-Creates a new instance. Optionally provide custom colors and colormaps to pre-populate.
-
-### Methods
-
-#### `initialize()`
-Async method that must be called after creating the instance. Initializes the component and loads preset data.
-
-#### `show()`
-Displays the editor component as a popup.
-
-#### `hide()`
-Hides the editor component.
-
-#### `getElement()`
-Returns the main DOM element for appending to your page.
-
-### Events
-
-#### `select`
-Fired when user clicks the "Select" button. Event detail contains:
-```javascript
-{
-    points: [
-        {
-            pos: 0.0,        // Position along colormap (0-1)
-            alpha: 1.0,      // Transparency (0-1)
-            color: [255, 0, 0], // RGB color array
-            order: 1         // Interpolation order
-        },
-        // ... more points
-    ],
-    isCyclic: false          // Whether colormap is cyclic
-}
-```
-
-#### `dataChanged`
-Fired when custom colors or colormaps are modified. Use this to save user data.
-
-## Advanced Features
-
-### Custom Color Spaces
-The component supports two color space representations:
-- **RGB Cube**: Direct RGB manipulation with orthogonal projection
-- **HSL Di-Cone**: Intuitive hue-saturation-lightness representation
-
-### Gamut Clamping
-Colors are automatically clamped to valid RGB gamut boundaries when editing in HSL space or when lightness values change.
-
-### Position Scaling
-When adding new points, existing points are automatically repositioned to maintain visual distribution, similar to professional gradient editors.
-
-### State Management
-- Full undo/redo stack with proper state snapshots
-- Dirty state tracking to prevent data loss
-- Automatic sorting of points by position
-
-### Custom Data Persistence
-The component integrates with localStorage for saving custom presets, but you can override this by listening to the `dataChanged` event and implementing your own storage solution.
-
-## Browser Compatibility
-
-- Modern browsers with ES6+ support
-- No external dependencies required
-- Self-contained CSS styling
-
-## License
-
-MIT License - see LICENSE file for details.
-
-=== constants.js ===
+=== src/constants.js ===
 // constants.js
 
 // --- Colors ---
@@ -3940,7 +4573,7 @@ export const SNAP_DISTANCE = 5;
 export const DASHED_LINE_STYLE = [4, 4];
 
 
-=== named_colormaps.js ===
+=== src/named_colormaps.js ===
 export default {
     "rgb": {
         "points": [
@@ -3962,7 +4595,9 @@ export default {
     "viridis": {
         "points": [
             { "pos": 0.0, "color": [68, 1, 84], "order": 1 },
+            { "pos": 0.25, "color": [59, 82, 139], "order": 1 },
             { "pos": 0.5, "color": [33, 145, 140], "order": 1 },
+            { "pos": 0.75, "color": [94, 201, 98], "order": 1 },
             { "pos": 1.0, "color": [253, 231, 37], "order": 1 }
         ]
     },
@@ -3975,7 +4610,76 @@ export default {
             { "pos": 1.0, "color": [240, 249, 33], "order": 1 }
         ]
     },
-    "grayscale": {
+    "inferno": {
+        "points": [
+            { "pos": 0.0, "color": [0, 0, 4], "order": 1 },
+            { "pos": 0.25, "color": [87, 15, 109], "order": 1 },
+            { "pos": 0.5, "color": [187, 55, 84], "order": 1 },
+            { "pos": 0.75, "color": [249, 142, 8], "order": 1 },
+            { "pos": 1.0, "color": [252, 255, 164], "order": 1 }
+        ]
+    },
+    "magma": {
+        "points": [
+            { "pos": 0.0, "color": [0, 0, 4], "order": 1 },
+            { "pos": 0.25, "color": [87, 24, 113], "order": 1 },
+            { "pos": 0.5, "color": [180, 54, 122], "order": 1 },
+            { "pos": 0.75, "color": [251, 136, 97], "order": 1 },
+            { "pos": 1.0, "color": [252, 253, 191], "order": 1 }
+        ]
+    },
+    "cividis": {
+        "points": [
+            { "pos": 0.0, "color": [0, 32, 77], "order": 1 },
+            { "pos": 0.25, "color": [31, 70, 84], "order": 1 },
+            { "pos": 0.5, "color": [86, 109, 90], "order": 1 },
+            { "pos": 0.75, "color": [159, 148, 84], "order": 1 },
+            { "pos": 1.0, "color": [255, 233, 69], "order": 1 }
+        ]
+    },
+    "coolwarm": {
+        "points": [
+            { "pos": 0.0, "color": [59, 76, 192], "order": 1 },
+            { "pos": 0.25, "color": [144, 178, 254], "order": 1 },
+            { "pos": 0.5, "color": [220, 220, 220], "order": 1 },
+            { "pos": 0.75, "color": [245, 156, 125], "order": 1 },
+            { "pos": 1.0, "color": [180, 4, 38], "order": 1 }
+        ]
+    },
+    "seismic": {
+        "points": [
+            { "pos": 0.0, "color": [0, 0, 75], "order": 1 },
+            { "pos": 0.25, "color": [0, 150, 255], "order": 1 },
+            { "pos": 0.5, "color": [255, 255, 255], "order": 1 },
+            { "pos": 0.75, "color": [255, 100, 0], "order": 1 },
+            { "pos": 1.0, "color": [100, 0, 0], "order": 1 }
+        ]
+    },
+    "spring": {
+        "points": [
+            { "pos": 0.0, "color": [255, 0, 255], "order": 1 },
+            { "pos": 1.0, "color": [255, 255, 0], "order": 1 }
+        ]
+    },
+    "summer": {
+        "points": [
+            { "pos": 0.0, "color": [0, 128, 102], "order": 1 },
+            { "pos": 1.0, "color": [255, 255, 102], "order": 1 }
+        ]
+    },
+    "autumn": {
+        "points": [
+            { "pos": 0.0, "color": [255, 0, 0], "order": 1 },
+            { "pos": 1.0, "color": [255, 255, 0], "order": 1 }
+        ]
+    },
+    "winter": {
+        "points": [
+            { "pos": 0.0, "color": [0, 0, 255], "order": 1 },
+            { "pos": 1.0, "color": [0, 255, 128], "order": 1 }
+        ]
+    },
+    "grays": {
         "points": [
             { "pos": 0.0, "color": [0, 0, 0], "order": 1 },
             { "pos": 1.0, "color": [255, 255, 255], "order": 1 }
@@ -3988,10 +4692,24 @@ export default {
             { "pos": 0.67, "color": [255, 255, 0], "order": 1 },
             { "pos": 1.0, "color": [255, 255, 255], "order": 1 }
         ]
+    },
+    "copper": {
+        "points": [
+            { "pos": 0.0, "color": [0, 0, 0], "order": 1 },
+            { "pos": 1.0, "color": [255, 197, 123], "order": 1 }
+        ]
+    },
+    "bone": {
+        "points": [
+            { "pos": 0.0, "color": [0, 0, 0], "order": 1 },
+            { "pos": 0.375, "color": [84, 84, 116], "order": 1 },
+            { "pos": 0.75, "color": [167, 199, 199], "order": 1 },
+            { "pos": 1.0, "color": [255, 255, 255], "order": 1 }
+        ]
     }
 };
 
-=== named_colors.js ===
+=== src/named_colors.js ===
 export default {
     "black": [0, 0, 0],
     "white": [255, 255, 255],
@@ -4034,616 +4752,125 @@ export default {
     "lightgreen": [144, 238, 144]
 };
 
-=== package.json ===
-{
-  "name": "colormap-selector",
-  "version": "1.0.1",
-  "description": "A popup colormap and color gradient editor component.",
-  "main": "ColormapSelector.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/svenviktorjonsson/colormap-selector.git"
-  },
-  "keywords": [
-    "color",
-    "picker",
-    "colormap",
-    "gradient",
-    "editor",
-    "javascript"
-  ],
-  "author": "Viktor Jonsson",
-  "license": "MIT"
-}
+=== tests/index.html ===
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Colormap Selector Test Page</title>
+    
+    <!-- Link to your component's stylesheet -->
+    <link rel="stylesheet" href="../dist/style.css">
+    <link rel="stylesheet" href="../node_modules/katex/dist/katex.min.css">
+    <script src="../node_modules/katex/dist/katex.min.js"></script>
+    <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+    <div class="canvas-section">
+        <div class="canvas-label">Current Colormap</div>
+        <canvas id="display-canvas"></canvas>
+    </div>
+    
+    <div class="content">
+        <div class="header-section">
+            <h1>Colormap Selector Test</h1>
+            <div class="instructions">
+                <p>Click the button to open the colormap editor.</p>
+                <p>Click <strong>"Select"</strong> to apply your colormap to the canvas above (editor stays open).</p>
+                <p>Click <strong>"Close"</strong> when you're done editing.</p>
+            </div>
+            <button id="open-editor-button">Open Colormap Editor</button>
+        </div>
+    </div>
 
-=== style.css ===
-/* ========== GLOBAL STYLES ========== */
+    <!-- The application logic will be in this file -->
+    <script type="module" src="./test.js"></script>
+</body>
+</html>
+
+=== tests/style.css ===
 body {
-    font-family: 'Inter', sans-serif;
-    touch-action: none;
-    user-select: none;
-}
-
-/* ========== MAIN LAYOUT ========== */
-.color-editor-layout {
-    display: grid;
-    grid-template-columns: repeat(6, 1fr);
-    grid-template-rows: 1fr 1fr;
-    gap: 0.375rem;
-    height: 100%;
-    width: 100%;
-    box-sizing: border-box;
-}
-
-#hs-pane-wrapper {
-    display: flex;
-    flex-direction: column;
-    background-color: rgba(45, 55, 72, 0.5);
-    border-radius: 0.375rem;
-    overflow: hidden;
-    min-height: 0;
-    padding: 0;
-    grid-column: 1 / span 2; 
-    grid-row: 1 / span 2;
-}
-#lightness-wrapper { grid-column: 3 / span 2; grid-row: 1 / span 1; }
-#alpha-wrapper { grid-column: 3 / span 2; grid-row: 2 / span 1; }
-#colors-presets-wrapper { grid-column: 5 / span 1; grid-row: 1 / span 1; }
-#colormaps-presets-wrapper { grid-column: 5 / span 1; grid-row: 2 / span 1; }
-#selected-color-section { grid-column: 6 / span 1; grid-row: 1 / span 1; }
-#current-colormap-section { grid-column: 6 / span 1; grid-row: 2 / span 1; }
-
-/* ========== UNIFIED CONTAINER STYLES ========== */
-.preset-wrapper,
-.control-section {
-    display: flex;
-    flex-direction: column;
-    background-color: rgba(45, 55, 72, 0.5);
-    border-radius: 0.375rem;
-    overflow: hidden;
-    min-height: 0;
-    padding: 0;
-}
-
-/* ========== PANEL HEADERS ========== */
-.panel-header {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-    height: 28px;
-    font-size: 0.7rem;
-    font-weight: 600;
-    color: #a0aec0;
-    text-transform: uppercase;
-    background-color: #3a4652;
-    border-radius: 0.375rem 0.375rem 0 0;
-    padding: 0;
-    margin: 0;
-    border-bottom: none;
-}
-
-.preset-category-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    flex-shrink: 0;
-    height: 28px;
-    font-size: 0.7rem;
-    font-weight: 600;
-    color: #a0aec0;
-    text-transform: uppercase;
-    background-color: #3a4652;
-    border-radius: 0.375rem 0.375rem 0 0;
-    padding: 0 6px;
-    margin: 0;
-    border-bottom: none;
-}
-
-.preset-category-title {
-    font-size: 0.7rem;
-    font-weight: 600;
-    color: #a0aec0;
-    text-transform: uppercase;
-    flex-grow: 1;
-}
-
-.section-title {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-    height: 28px;
-    font-size: 0.7rem;
-    font-weight: 600;
-    color: #a0aec0;
-    text-transform: uppercase;
-    background-color: #3a4652;
-    border-radius: 0.375rem 0.375rem 0 0;
-    padding: 0 6px;
-    margin: 0;
-    border-bottom: none;
-}
-
-/* ========== CANVAS & INTERACTIVE AREAS ========== */
-#lightness-wrapper,
-#alpha-wrapper {
-    height: 100%;
-}
-
-.canvas-container {
-    position: relative;
-    cursor: grab;
-    width: 100%;
-    flex-grow: 1;
-    min-height: 0;
-    margin: 0;
-    padding: 0;
-}
-
-#hs-canvas-container {
-    cursor: crosshair;
-    flex-grow: 1;
-    margin: 0;
-    padding: 0;
-    width: 100%;
-    height: 100%;
-}
-
-.canvas-container > canvas {
-    position: absolute; 
-    top: 0; 
-    left: 0;
-    width: 100%; 
-    height: 100%;
-    display: block;
-    margin: 0;
-    padding: 0;
-}
-
-.interactive-canvas {
-    position: absolute; 
-    top: 0; 
-    left: 0;
-    width: 100%; 
-    height: 100%;
-    pointer-events: auto; 
-    z-index: 10;
-    margin: 0;
-    padding: 0;
-}
-.hs-interactive { cursor: crosshair; }
-.lightness-interactive, .alpha-interactive { cursor: ns-resize; }
-
-/* ========== CONTROL SECTIONS ========== */
-.control-section {
-    padding: 0;
-}
-
-.control-section > *:not(.section-title) {
-    margin-left: 0.375rem;
-    margin-right: 0.375rem;
-}
-
-.control-section > .preview-container {
-    margin-top: 0.375rem;
-    margin-bottom: 0.5rem;
-    margin-left: 0.375rem;
-    margin-right: 0.375rem;
-}
-
-.control-section > .space-y-2 {
-    padding-left: 0;
-    padding-right: 0;
-    padding-bottom: 0.375rem;
-    margin-left: 0.375rem;
-    margin-right: 0.375rem;
-}
-
-.preview-container {
-    width: calc(100% - 0.75rem);
-    height: 1.75rem; 
-    border-radius: 0.25rem;
-    border: 1px solid #4a5568; 
-    position: relative;
-    flex-shrink: 0; 
-    overflow: hidden; 
-    margin: 0;
-    margin-bottom: 0.5rem;
-}
-
-/* ========== PRESET LISTS ========== */
-.preset-items-container {
-    padding: 0.25rem;
-    flex-grow: 1;
-    overflow-y: auto;
-    scrollbar-width: thin;
-    scrollbar-color: #4a5568 #2d3748;
-    margin: 0;
-}
-
-.preset-items-container::-webkit-scrollbar { width: 6px; }
-.preset-items-container::-webkit-scrollbar-track { background: #2d3748; }
-.preset-items-container::-webkit-scrollbar-thumb { background-color: #4a5568; border-radius: 3px; }
-
-.preset-item {
-    display: flex; 
-    align-items: center; 
-    gap: 6px; 
-    font-size: 0.975rem;
-    padding: 3px 6px; 
-    cursor: pointer; 
-    border-radius: 3px;
-    transition: background-color 0.15s ease-in-out;
-    white-space: nowrap; 
-    overflow: hidden; 
-    text-overflow: ellipsis;
-    margin: 0;
-}
-.preset-item:hover { background-color: #4a5568; }
-
-.preset-icon {
-    width: 21px; 
-    height: 21px; 
-    border: 1px solid rgba(0,0,0,0.2);
-    border-radius: 2px; 
-    flex-shrink: 0;
-    margin: 0;
-}
-
-#colormaps-presets-wrapper .preset-icon { width: 72px; height: 18px; }
-
-.add-preset-btn {
-    background: none; 
-    border: none; 
-    color: #a0aec0;
-    font-size: 14px; 
-    font-weight: bold; 
-    cursor: pointer; 
-    padding: 0 3px;
-    flex-shrink: 0;
-    margin: 0;
-}
-.add-preset-btn:hover { color: #ffffff; }
-
-/* ========== INPUT FIELDS ========== */
-.input-label {
-    font-size: 0.65rem; 
-    font-weight: 500; 
-    color: #a0aec0;
-    text-align: center; 
-    line-height: 1.2; 
-    margin: 0;
-    margin-bottom: 0.125rem;
-}
-
-.value-input {
-    font-family: 'Inter', sans-serif; 
-    font-size: 0.75rem;
-    background-color: #4a5568; 
-    color: #e2e8f0;
-    text-align: center; 
-    border-radius: 0.25rem; 
-    width: 100%;
-    padding: 0.2rem; 
-    border: 1px solid #718096;
-    height: 1.5rem; 
-    box-sizing: border-box;
-    margin: 0;
-}
-
-.value-input:focus {
-    outline: none; 
-    border-color: #3b82f6;
-    box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.5);
-}
-
-.rgb-r-input,
-.rgb-g-input,
-.rgb-b-input {
-    background-color: #4a5568;
-}
-
-.hsl-inputs-grid {
-    display: grid; 
-    grid-template-columns: 1fr 1fr; 
-    gap: 0.25rem;
-    margin: 0;
-}
-
-.values-grid .input-label {
-    font-size: 0.75rem;
-    text-align: center;
-    margin-bottom: 0.25rem;
-}
-
-.values-grid .value-input {
-    width: 100%;
-}
-
-/* ========== INTERPOLATION BUTTONS ========== */
-.interpolation-button {
-    height: 1.5rem;
-    border: 1px solid #718096;
-    background-color: #4a5568;
-    color: white;
-    border-radius: 0.25rem;
-    cursor: pointer;
-    font-size: 0.75rem;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 0;
-    margin: 0;
-}
-
-.interpolation-button:hover {
-    background-color: #6B7280;
-}
-
-.interpolation-button.active {
-    background-color: #3B82F6;
-    border-color: #2563EB;
-}
-
-.interpolation-button:focus {
-    outline: none;
-    border-color: #3b82f6;
-    box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.5);
-}
-
-/* ========== TAB BUTTONS ========== */
-.tab-button {
-    padding: 2px 6px; 
-    border-radius: 4px; 
-    border: 1px solid transparent;
-    font-size: 0.65rem; 
-    font-weight: 500; 
-    color: #a0aec0;
-    background-color: transparent; 
-    cursor: pointer; 
-    transition: all 0.2s ease-in-out;
-    margin: 0;
-}
-.tab-button.active { color: #ffffff; background-color: #3b82f6; }
-.tab-button:hover:not(.active) { background-color: #4a5568; }
-
-/* ========== BUTTON LAYOUT ========== */
-.button-container {
-    margin: 0.375rem;
-    margin-top: 0.375rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-}
-
-.button-row {
-    display: flex;
-    gap: 0.25rem;
-    width: 100%;
-}
-
-.reverse-button {
-    flex: 1;
-    padding: 6px; 
-    font-size: 0.75rem; 
-    font-weight: 500;
-    color: #ffffff; 
-    background-color: #8b5cf6;
-    border: none; 
-    border-radius: 4px; 
-    cursor: pointer;
-    transition: all 0.2s ease-in-out;
-    height: 2rem; 
-    box-sizing: border-box;
-}
-
-.reverse-button:hover { 
-    background-color: #7c3aed;
-    box-shadow: 
-        0 2px 4px rgba(0, 0, 0, 0.1),
-        inset 0 1px 0 rgba(255, 255, 255, 0.2);
-}
-
-.cycle-button {
-    flex: 1;
-    padding: 6px; 
-    font-size: 0.75rem; 
-    font-weight: 500;
-    color: #ffffff; 
-    background-color: #10b981;
-    border: none; 
-    border-radius: 4px; 
-    cursor: pointer;
-    transition: all 0.2s ease-in-out;
-    height: 2rem; 
-    box-sizing: border-box;
-}
-
-.cycle-button:hover { 
-    background-color: #059669;
-    box-shadow: 
-        0 2px 4px rgba(0, 0, 0, 0.1),
-        inset 0 1px 0 rgba(255, 255, 255, 0.3),
-        0 0 8px rgba(16, 185, 129, 0.3);
-}
-
-/* Override the active state to look the same as normal state */
-.cycle-button.active {
-    background-color: #10b981;
-    box-shadow: none;
-}
-
-.cycle-button.active:hover {
-    background-color: #059669;
-}
-.close-button {
-    width: 100%;
-    padding: 6px; 
-    font-size: 0.75rem; 
-    font-weight: 500;
-    color: #ffffff; 
-    background-color: #6b7280;
-    border: none; 
-    border-radius: 4px; 
-    cursor: pointer;
-    transition: background-color 0.2s ease-in-out;
-    height: 2rem; 
-    box-sizing: border-box;
-}
-
-.close-button:hover { 
-    background-color: #4b5563; 
-}
-
-.select-button {
-    width: 100%;
-    padding: 6px; 
-    font-size: 0.75rem; 
-    font-weight: 500;
-    color: #ffffff; 
-    background-color: #3b82f6;
-    border: none; 
-    border-radius: 4px; 
-    cursor: pointer;
-    transition: background-color 0.2s ease-in-out;
-    height: 2rem; 
-    box-sizing: border-box;
-}
-
-.select-button:hover { 
-    background-color: #2563eb; 
-}
-
-.reverse-button:disabled,
-.cycle-button:disabled {
-    background-color: #4a5568;
-    cursor: not-allowed;
-    opacity: 0.6;
-}
-
-.reverse-button:disabled:hover,
-.cycle-button:disabled:hover {
-    background-color: #4a5568;
-}
-
-.select-button:disabled {
-    background-color: #4a5568;
-    cursor: not-allowed;
-    opacity: 0.6;
-}
-
-.select-button:disabled:hover {
-    background-color: #4a5568;
-}
-
-/* ========== UTILITY CLASSES ========== */
-.hidden { display: none !important; }
-.space-y-2 > * + * { margin-top: 0.25rem; }
-.text-center { text-align: center; }
-.grid { display: grid; }
-.grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.gap-2 { gap: 0.5rem; }
-.mb-1 { margin-bottom: 0.25rem; }
-.absolute { position: absolute; }
-.top-0 { top: 0; }
-.left-0 { left: 0; }
-.w-full { width: 100%; }
-.h-full { height: 100%; }
-
-/* ========== MODAL AND CONTEXT MENU ========== */
-.modal-overlay {
-    position: fixed; 
-    top: 0; 
-    left: 0; 
-    width: 100%; 
-    height: 100%;
-    background-color: rgba(0, 0, 0, 0.6); 
-    display: flex;
-    justify-content: center; 
-    align-items: center; 
-    z-index: 1000;
-}
-
-.modal-dialog {
-    background-color: #2d3748; 
-    padding: 20px; 
-    border-radius: 8px;
-    box-shadow: 0 5px 15px rgba(0,0,0,0.3); 
-    width: 300px;
-    display: flex; 
-    flex-direction: column; 
-    gap: 16px;
-}
-
-.modal-title { 
-    font-size: 16px; 
-    font-weight: 500; 
-    color: #e2e8f0; 
-    text-align: center; 
-}
-
-.modal-input {
-    width: 100%; 
-    background-color: #4a5568; 
-    border: 1px solid #718096;
-    border-radius: 4px; 
-    padding: 8px; 
-    color: #e2e8f0;
-}
-
-.modal-buttons { 
-    display: flex; 
-    justify-content: flex-end; 
-    gap: 8px; 
-}
-
-.modal-button {
-    padding: 6px 12px; 
-    border: none; 
-    border-radius: 4px;
-    cursor: pointer; 
-    font-size: 14px; 
-    font-weight: 500;
-}
-
-.modal-button-primary { background-color: #3b82f6; color: white; }
-.modal-button-secondary { background-color: #4a5568; color: #e2e8f0; }
-
-.context-menu {
-    position: fixed; 
-    z-index: 1012;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     background-color: #2d3748;
-    border: 1px solid #4a5568; 
-    border-radius: 6px;
-    box-shadow: 0 2px 10px rgba(0,0,0,0.2); 
-    padding: 4px;
-    display: flex; 
+    color: #e2e8f0;
+    margin: 0;
+    padding: 1rem;
+    height: 100vh;
+    display: flex;
     flex-direction: column;
 }
 
-.context-menu-item {
-    background: none; 
-    border: none; 
-    color: #e2e8f0; 
-    text-align: left;
-    padding: 6px 12px; 
-    cursor: pointer; 
-    border-radius: 4px; 
-    font-size: 14px;
+.header-section {
+    text-align: center;
+    margin-bottom: 1rem;
 }
 
-.context-menu-item:hover { background-color: #3b82f6; }
-
-#colormap-selector-wrapper {
-    cursor: move;
+.canvas-section {
+    position: fixed;
+    top: 1rem;
+    right: 1rem;
+    width: 400px;
+    z-index: 999;
 }
 
-=== test-app.js ===
-import ColormapSelector from './ColormapSelector.js';
+.canvas-label {
+    font-size: 0.8rem;
+    color: #a0aec0;
+    margin-bottom: 0.5rem;
+    text-align: center;
+}
+
+#display-canvas {
+    border: 2px solid #4a5568;
+    border-radius: 0.375rem;
+    width: 100%;
+    height: 40px;
+    cursor: pointer; /* Add this line */
+    background-image:
+        linear-gradient(45deg, #4a5568 25%, transparent 25%),
+        linear-gradient(-45deg, #4a5568 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, #4a5568 75%),
+        linear-gradient(-45deg, transparent 75%, #4a5568 75%);
+    background-size: 16px 16px;
+    background-position: 0 0, 0 8px, 8px -8px, -8px 0px;
+}
+
+#open-editor-button {
+    font-size: 1rem;
+    font-weight: 500;
+    padding: 0.75rem 1.5rem;
+    cursor: pointer;
+    border-radius: 0.5rem;
+    border: none;
+    background-color: #3b82f6;
+    color: white;
+    transition: background-color 0.2s;
+}
+
+#open-editor-button:hover {
+    background-color: #2563eb;
+}
+
+.instructions {
+    margin: 1rem 0;
+    font-size: 0.9rem;
+    color: #a0aec0;
+    max-width: 600px;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+.content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+}
+
+=== tests/test.js ===
+import ColormapSelector from '../src/ColormapSelector.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
     const openEditorButton = document.getElementById('open-editor-button');
@@ -4727,124 +4954,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         ctx.fillRect(0, 0, width, height);
     }
 });
-
-=== test.html ===
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Colormap Selector Test Page</title>
-    
-    <!-- Link to your component's stylesheet -->
-    <link rel="stylesheet" href="style.css">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" integrity="sha384-n8MVd4RsNIU0tAv4ct0nTaAbDJwPJzDEaqSD1odI+WdtXRGWt2kTvGFasHpSy3SV" crossorigin="anonymous">
-    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js" integrity="sha384-XjKyOOlGwcjNTAIQHIpgOno0Hl1YQqzUOEleOLALmuqehneUG+vnGctmUb0ZY0l8" crossorigin="anonymous"></script>
-    
-    <style>
-        /* Basic styles for the test page */
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            background-color: #2d3748;
-            color: #e2e8f0;
-            margin: 0;
-            padding: 1rem;
-            height: 100vh;
-            display: flex;
-            flex-direction: column;
-        }
-        
-        .header-section {
-            text-align: center;
-            margin-bottom: 1rem;
-        }
-        
-        .canvas-section {
-            position: fixed;
-            top: 1rem;
-            right: 1rem;
-            width: 400px;
-            z-index: 999;
-        }
-        
-        .canvas-label {
-            font-size: 0.8rem;
-            color: #a0aec0;
-            margin-bottom: 0.5rem;
-            text-align: center;
-        }
-        
-        #display-canvas {
-            border: 2px solid #4a5568;
-            border-radius: 0.375rem;
-            width: 100%;
-            height: 40px;
-            cursor: pointer; /* Add this line */
-            background-image:
-                linear-gradient(45deg, #4a5568 25%, transparent 25%),
-                linear-gradient(-45deg, #4a5568 25%, transparent 25%),
-                linear-gradient(45deg, transparent 75%, #4a5568 75%),
-                linear-gradient(-45deg, transparent 75%, #4a5568 75%);
-            background-size: 16px 16px;
-            background-position: 0 0, 0 8px, 8px -8px, -8px 0px;
-        }
-        
-        #open-editor-button {
-            font-size: 1rem;
-            font-weight: 500;
-            padding: 0.75rem 1.5rem;
-            cursor: pointer;
-            border-radius: 0.5rem;
-            border: none;
-            background-color: #3b82f6;
-            color: white;
-            transition: background-color 0.2s;
-        }
-        
-        #open-editor-button:hover {
-            background-color: #2563eb;
-        }
-        
-        .instructions {
-            margin: 1rem 0;
-            font-size: 0.9rem;
-            color: #a0aec0;
-            max-width: 600px;
-            margin-left: auto;
-            margin-right: auto;
-        }
-        
-        .content {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-        }
-    </style>
-</head>
-<body>
-    <div class="canvas-section">
-        <div class="canvas-label">Current Colormap</div>
-        <canvas id="display-canvas"></canvas>
-    </div>
-    
-    <div class="content">
-        <div class="header-section">
-            <h1>Colormap Selector Test</h1>
-            <div class="instructions">
-                <p>Click the button to open the colormap editor.</p>
-                <p>Click <strong>"Select"</strong> to apply your colormap to the canvas above (editor stays open).</p>
-                <p>Click <strong>"Close"</strong> when you're done editing.</p>
-            </div>
-            <button id="open-editor-button">Open Colormap Editor</button>
-        </div>
-    </div>
-
-    <!-- The application logic will be in this file -->
-    <script type="module" src="test-app.js"></script>
-</body>
-</html>
 
 
 === LLM Instructions ===
