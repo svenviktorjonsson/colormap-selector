@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Colormap Selector Test Page</title>
+    
+    <!-- Link to your component's stylesheet -->
+    <link rel="stylesheet" href="../dist/style.css">
+    <link rel="stylesheet" href="../node_modules/katex/dist/katex.min.css">
+    <script src="../node_modules/katex/dist/katex.min.js"></script>
+    <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+    <div class="canvas-section">
+        <div class="canvas-label">Current Colormap</div>
+        <canvas id="display-canvas"></canvas>
+    </div>
+    
+    <div class="content">
+        <div class="header-section">
+            <h1>Colormap Selector Test</h1>
+            <div class="instructions">
+                <p>Click the button to open the colormap editor.</p>
+                <p>Click <strong>"Select"</strong> to apply your colormap to the canvas above (editor stays open).</p>
+                <p>Click <strong>"Close"</strong> when you're done editing.</p>
+            </div>
+            <button id="open-editor-button">Open Colormap Editor</button>
+        </div>
+    </div>
+
+    <!-- The application logic will be in this file -->
+    <script type="module" src="./test.js"></script>
+</body>
+</html>

@@ -1,4 +1,4 @@
-import ColormapSelector from './ColormapSelector.js';
+import ColormapSelector from '../src/ColormapSelector.js';
 
 document.addEventListener('DOMContentLoaded', async () => {
     const openEditorButton = document.getElementById('open-editor-button');
