@@ -7,3 +7,5 @@ node_modules/
 *.tmp
 .env
 coverage/
+write_content_to_file.py
+*.py
