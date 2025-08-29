@@ -19,5 +19,8 @@
     "javascript"
   ],
   "author": "Viktor Jonsson",
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "katex": "^0.16.22"
+  }
 }

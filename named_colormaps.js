@@ -32,7 +32,7 @@ export default {
             { "pos": 1.0, "color": [240, 249, 33], "order": 1 }
         ]
     },
-    "grayscale": {
+    "grays": {
         "points": [
             { "pos": 0.0, "color": [0, 0, 0], "order": 1 },
             { "pos": 1.0, "color": [255, 255, 255], "order": 1 }
