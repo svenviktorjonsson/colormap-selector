@@ -105,6 +105,7 @@ export default class ColormapSelector {
             this.wrapper.style.right = null;
             this.wrapper.style.visibility = 'visible';
 
+            // Reset state
             this.state.points = [];
             this.state.selectedPointIds.clear();
             this.state.lastSelectedPointId = null;
@@ -117,44 +118,118 @@ export default class ColormapSelector {
             let initialViewLightness = 0.5;
             let initialViewAlpha = 1.0;
             
-            if (initialState && initialState.type === 'colormap' && (initialState.points || initialState.controlPoints)) {
-                this.state.isCyclic = initialState.isCyclic === true;
-                
-                let pointsToLoad = JSON.parse(JSON.stringify(initialState.controlPoints || initialState.points));
-                
-                if (pointsToLoad.length === 1) {
-                    pointsToLoad[0].pos = 0.5;
-                    
-                    const rgb = pointsToLoad[0].color;
-                    const r = rgb[0] / 255;
-                    const g = rgb[1] / 255;
-                    const b = rgb[2] / 255;
-                    
-                    const lightness = (r + g + b) / 3;
-                    
-                    initialViewLightness = lightness;
-                    initialViewAlpha = pointsToLoad[0].alpha !== undefined ? pointsToLoad[0].alpha : 1.0;
+            // Handle different initial state types
+            if (initialState) {
+                switch (initialState.type) {
+                    case 'colormapName':
+                        // Load a named colormap by name
+                        if (initialState.name) {
+                            requestAnimationFrame(() => {
+                                // Try named colormaps first, then custom
+                                if (this.namedColormaps[initialState.name]) {
+                                    this.loadColormap(initialState.name, 'named_colormaps', true);
+                                } else if (this.customColormaps[initialState.name]) {
+                                    this.loadColormap(initialState.name, 'custom_colormaps', true);
+                                } else {
+                                    console.warn(`Colormap "${initialState.name}" not found`);
+                                }
+                            });
+                            return; // Early return - loadColormap will handle the rest
+                        }
+                        break;
+
+                    case 'colorName':
+                        // Apply a single named color
+                        if (initialState.name) {
+                            const rgb = this.namedColors[initialState.name] || 
+                                    (this.customColors[initialState.name] && this.customColors[initialState.name].rgb);
+                            if (rgb) {
+                                const r = rgb[0] / 255;
+                                const g = rgb[1] / 255;
+                                const b = rgb[2] / 255;
+                                const alpha = initialState.alpha !== undefined ? initialState.alpha : 1.0;
+                                
+                                const newPoint = this.createPointFromRgb(r, g, b, alpha, 0.5, 1);
+                                this.state.points = [newPoint];
+                                this.state.selectedPointIds.add(newPoint.id);
+                                this.state.lastSelectedPointId = newPoint.id;
+                                
+                                initialViewLightness = newPoint.lightness;
+                                initialViewAlpha = alpha;
+                            } else {
+                                console.warn(`Color "${initialState.name}" not found`);
+                            }
+                        }
+                        break;
+
+                    case 'color':
+                        // Apply a single RGB color
+                        if (initialState.color && Array.isArray(initialState.color) && initialState.color.length >= 3) {
+                            const r = initialState.color[0] / 255;
+                            const g = initialState.color[1] / 255;
+                            const b = initialState.color[2] / 255;
+                            const alpha = initialState.alpha !== undefined ? initialState.alpha : 1.0;
+                            
+                            const newPoint = this.createPointFromRgb(r, g, b, alpha, 0.5, 1);
+                            this.state.points = [newPoint];
+                            this.state.selectedPointIds.add(newPoint.id);
+                            this.state.lastSelectedPointId = newPoint.id;
+                            
+                            initialViewLightness = newPoint.lightness;
+                            initialViewAlpha = alpha;
+                        }
+                        break;
+
+                    case 'colormap':
+                        // Load colormap from points/controlPoints data
+                        const pointsData = initialState.controlPoints || initialState.points;
+                        if (pointsData && Array.isArray(pointsData) && pointsData.length > 0) {
+                            this.state.isCyclic = initialState.isCyclic === true;
+                            
+                            let pointsToLoad = JSON.parse(JSON.stringify(pointsData));
+                            
+                            // Handle single point case
+                            if (pointsToLoad.length === 1) {
+                                pointsToLoad[0].pos = 0.5;
+                                
+                                const rgb = pointsToLoad[0].color;
+                                const r = rgb[0] / 255;
+                                const g = rgb[1] / 255;
+                                const b = rgb[2] / 255;
+                                
+                                const lightness = (r + g + b) / 3;
+                                
+                                initialViewLightness = lightness;
+                                initialViewAlpha = pointsToLoad[0].alpha !== undefined ? pointsToLoad[0].alpha : 1.0;
+                            }
+                            
+                            // Convert points to internal format
+                            this.state.points = pointsToLoad.map(p => {
+                                const rgb = p.color;
+                                const alpha = p.alpha !== undefined ? p.alpha : 1.0;
+                                const order = p.order !== undefined ? p.order : 1;
+                                return this.createPointFromRgb(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255, alpha, p.pos, order);
+                            });
+                            
+                            this.sortPoints();
+                            if (this.state.points.length > 0) {
+                                this.state.lastSelectedPointId = this.state.points[0].id;
+                                this.state.selectedPointIds.add(this.state.points[0].id);
+                            }
+                        }
+                        break;
+
+                    default:
+                        console.warn(`Unknown initial state type: ${initialState.type}`);
+                        break;
                 }
-                
-                this.state.points = pointsToLoad.map(p => {
-                    const rgb = p.color;
-                    const alpha = p.alpha !== undefined ? p.alpha : 1.0;
-                    return this.createPointFromRgb(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255, alpha, p.pos, p.order ?? 1);
-                });
-                
-            } else {
-                this.state.points = [];
             }
             
+            // Set view properties
             this.state.viewLightness = initialViewLightness;
             this.state.viewAlpha = initialViewAlpha;
             
-            this.sortPoints();
-            if (this.state.points.length > 0) {
-                this.state.lastSelectedPointId = this.state.points[0].id;
-                this.state.selectedPointIds.add(this.state.points[0].id);
-            }
-
+            // Mark as clean since this is initial loading
             this.setDirty(false);
 
             requestAnimationFrame(() => {
