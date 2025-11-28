@@ -10,6 +10,23 @@ document.addEventListener('DOMContentLoaded', async () => {
     await colorEditor.initialize();
     document.body.appendChild(colorEditor.getElement());
 
+
+    const exportButton = document.getElementById('export-button');
+
+    exportButton.addEventListener('click', () => {
+        // 1. Get the data from the editor instance
+        const presets = colorEditor.getPresetsData();
+        
+        // 2. Create a blob and download it
+        const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(presets, null, 2));
+        const downloadAnchorNode = document.createElement('a');
+        downloadAnchorNode.setAttribute("href", dataStr);
+        downloadAnchorNode.setAttribute("download", "colormap_presets.json");
+        document.body.appendChild(downloadAnchorNode); // required for firefox
+        downloadAnchorNode.click();
+        downloadAnchorNode.remove();
+    });
+
     openEditorButton.addEventListener('click', (e) => {
         colorEditor.show();
     });

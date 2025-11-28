@@ -21,11 +21,14 @@
         <div class="header-section">
             <h1>Colormap Selector Test</h1>
             <div class="instructions">
-                <p>Click the button to open the colormap editor.</p>
-                <p>Click <strong>"Select"</strong> to apply your colormap to the canvas above (editor stays open).</p>
-                <p>Click <strong>"Close"</strong> when you're done editing.</p>
+                <p>1. <strong>Open Editor</strong> to create/edit colormaps.</p>
+                <p>2. <strong>Select</strong> to apply the map to the canvas.</p>
+                <p>3. <strong>Export JSON</strong> to save your custom presets to a file.</p>
             </div>
-            <button id="open-editor-button">Open Colormap Editor</button>
+            <div class="button-row" style="display: flex; gap: 10px; justify-content: center;">
+                <button id="open-editor-button">Open Colormap Editor</button>
+                <button id="export-button" style="background-color: #4a5568;">Export Presets JSON</button>
+            </div>
         </div>
     </div>
 

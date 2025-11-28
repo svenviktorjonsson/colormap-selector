@@ -21,7 +21,8 @@ export default class ColormapSelector {
             loadedColormapName: null,
             loadedColormapType: null,
             isCyclic: false,
-            cyclicStateWhenEnabled: null
+            cyclicStateWhenEnabled: null,
+            colormapId: null
         };
 
         this.namedColors = {};
@@ -114,12 +115,18 @@ export default class ColormapSelector {
             this.state.isCyclic = false;
             this.state.loadedColormapName = null;
             this.state.loadedColormapType = null;
+            this.state.colormapId = null;
             
             let initialViewLightness = 0.5;
             let initialViewAlpha = 1.0;
             
             // Handle different initial state types
             if (initialState) {
+                // Restore ID if provided, otherwise a new one will be generated below
+                if (initialState.id) {
+                    this.state.colormapId = initialState.id;
+                }
+
                 switch (initialState.type) {
                     case 'colormapName':
                         // Load a named colormap by name
@@ -181,7 +188,9 @@ export default class ColormapSelector {
                         break;
 
                     case 'colormap':
-                        // Load colormap from points/controlPoints data
+                        // Load colormap from points/controlPoints data.
+                        // We prioritize controlPoints (sparse data) to ensure we load the editable resolution
+                        // rather than the interpolated result if both are present.
                         const pointsData = initialState.controlPoints || initialState.points;
                         if (pointsData && Array.isArray(pointsData) && pointsData.length > 0) {
                             this.state.isCyclic = initialState.isCyclic === true;
@@ -223,6 +232,11 @@ export default class ColormapSelector {
                         console.warn(`Unknown initial state type: ${initialState.type}`);
                         break;
                 }
+            }
+            
+            // Generate a new ID if one wasn't loaded or generated
+            if (!this.state.colormapId) {
+                this.state.colormapId = `cm-${Date.now()}-${Math.floor(Math.random() * 0xFFFFFF).toString(16)}`;
             }
             
             // Set view properties
@@ -292,7 +306,6 @@ export default class ColormapSelector {
             if (!response.ok) {
                 throw new Error(`Failed to fetch preset file at ${url}: Status ${response.status}`);
             }
-            // This will also throw an error for malformed JSON, which is what we want.
             return await response.json();
         };
 
@@ -305,12 +318,33 @@ export default class ColormapSelector {
             }
         };
 
-        [this.namedColors, this.customColors, this.namedColormaps, this.customColormaps] = await Promise.all([
+        // 1. Load defaults and storage
+        const [namedColors, storedColors, namedColormaps, storedColormaps] = await Promise.all([
             fetchPreset('named_colors.json'),
             loadFromStorage('custom_colors'),
             fetchPreset('named_colormaps.json'),
             loadFromStorage('custom_colormaps')
         ]);
+
+        this.namedColors = namedColors;
+        this.namedColormaps = namedColormaps;
+
+        // 2. Merge: Storage + Constructor Arguments
+        // Constructor arguments (this.customColors) take precedence over LocalStorage,
+        // allowing you to "force" specific presets via initialization.
+        this.customColors = { ...storedColors, ...this.customColors };
+        this.customColormaps = { ...storedColormaps, ...this.customColormaps };
+    }
+
+    /**
+     * Returns the current custom colors and colormaps.
+     * Use this data to save to a JSON file.
+     */
+    getPresetsData() {
+        return {
+            customColors: { ...this.customColors },
+            customColormaps: { ...this.customColormaps }
+        };
     }
 
     saveCustomPresets(type) {
@@ -396,8 +430,11 @@ export default class ColormapSelector {
     loadColormap(name, type, isInitialLoad = false) {
         if (!isInitialLoad) this.saveState();
         
+        // Generate a new ID for the loaded preset
+        this.state.colormapId = `cm-${Date.now()}-${Math.floor(Math.random() * 0xFFFFFF).toString(16)}`;
+
         const colormapData = (type === 'named_colormaps') ? this.namedColormaps[name] : this.customColormaps[name];
-        
+
         if (!colormapData || !colormapData.points) {
             console.error(`Colormap '${name}' not found or is invalid.`);
             return;
@@ -847,6 +884,7 @@ _handleDragEnd(e) {
         });
 
         const output = {
+            id: this.state.colormapId,
             points: finalPoints,
             controlPoints: originalControlPoints,
             isCyclic: this.state.isCyclic
