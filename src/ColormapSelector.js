@@ -517,9 +517,9 @@ createCubicButtonIcon() {
     this.wrapper = createEl('div', { id: 'colormap-selector-wrapper' });
     this.wrapper = createEl('div', { id: 'colormap-selector-wrapper' });
     this.wrapper.style.cssText = `
-        position: fixed; display: none; z-index: 1000; background-color: #1a202c; 
+        position: absolute; display: none; z-index: 1000; background-color: #1a202c; 
         padding: 0.5rem; border-radius: 0.5rem; box-shadow: 0 10px 25px rgba(0,0,0,0.3); 
-        top: 50px; left: 50px; width: 1100px; height: 500px; max-width: 95vw; max-height: 90vh;
+        bottom: 0.5rem; right: 0.5rem; height: 50vh; max-width: 90vw; min-height: 400px; min-width: 600px;
     `;
 
     this.elements.hsBgCanvas = createEl('canvas', { id: 'hs-bg-canvas' });
