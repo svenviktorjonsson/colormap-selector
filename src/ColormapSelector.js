@@ -488,19 +488,19 @@ export default class ColormapSelector {
     createConstantButtonIcon() {
     return `<svg width="100%" height="100%" viewBox="0 0 40 20" style="pointer-events: none;">
         <path d="M5,15 L15,15 L15,8 L25,8 L25,12 L35,12" 
-              stroke="currentColor" stroke-width="2" fill="none"/>
+              stroke="white" stroke-width="2" fill="none"/>
     </svg>`;
 }
 
 createLinearButtonIcon() {
     return `<svg width="100%" height="100%" viewBox="0 0 40 20" style="pointer-events: none;">
-        <path d="M5,15 L20,10 L35,5" stroke="currentColor" stroke-width="2" fill="none"/>
+        <path d="M5,15 L20,10 L35,5" stroke="white" stroke-width="2" fill="none"/>
     </svg>`;
 }
 
 createCubicButtonIcon() {
     return `<svg width="100%" height="100%" viewBox="0 0 40 20" style="pointer-events: none;">
-        <path d="M5,15 Q15,5 25,10 T35,8" stroke="currentColor" stroke-width="2" fill="none"/>
+        <path d="M5,15 Q15,5 25,10 T35,8" stroke="white" stroke-width="2" fill="none"/>
     </svg>`;
 }
     
