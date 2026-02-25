@@ -108,8 +108,8 @@ export default class ColormapSelector {
             } else {
                 this.wrapper.style.left = null;
                 this.wrapper.style.top = null;
-                this.wrapper.style.bottom = '0';
-                this.wrapper.style.right = '0';
+                this.wrapper.style.bottom = '0.5rem';
+                this.wrapper.style.right = '0.5rem';
             }
             this.wrapper.style.visibility = 'visible';
 
@@ -488,19 +488,19 @@ export default class ColormapSelector {
     createConstantButtonIcon() {
     return `<svg width="100%" height="100%" viewBox="0 0 40 20" style="pointer-events: none;">
         <path d="M5,15 L15,15 L15,8 L25,8 L25,12 L35,12" 
-              stroke="white" stroke-width="2" fill="none"/>
+              stroke="currentColor" stroke-width="2" fill="none"/>
     </svg>`;
 }
 
 createLinearButtonIcon() {
     return `<svg width="100%" height="100%" viewBox="0 0 40 20" style="pointer-events: none;">
-        <path d="M5,15 L20,10 L35,5" stroke="white" stroke-width="2" fill="none"/>
+        <path d="M5,15 L20,10 L35,5" stroke="currentColor" stroke-width="2" fill="none"/>
     </svg>`;
 }
 
 createCubicButtonIcon() {
     return `<svg width="100%" height="100%" viewBox="0 0 40 20" style="pointer-events: none;">
-        <path d="M5,15 Q15,5 25,10 T35,8" stroke="white" stroke-width="2" fill="none"/>
+        <path d="M5,15 Q15,5 25,10 T35,8" stroke="currentColor" stroke-width="2" fill="none"/>
     </svg>`;
 }
     
@@ -526,7 +526,7 @@ createCubicButtonIcon() {
     this.wrapper.style.cssText = `
         position: absolute; display: none; z-index: 1000; background-color: #1a202c; 
         padding: 0.5rem; border-radius: 0.5rem; box-shadow: 0 10px 25px rgba(0,0,0,0.3); 
-        bottom: 0; right: 0; width: 1100px; height: 50vh; max-width: 90vw; min-height: 400px; min-width: 600px;
+        bottom: 0.5rem; right: 0.5rem; width: 1100px; height: 50vh; min-height: 400px; min-width: 600px;
     `;
 
     this.elements.hsBgCanvas = createEl('canvas', { id: 'hs-bg-canvas' });
