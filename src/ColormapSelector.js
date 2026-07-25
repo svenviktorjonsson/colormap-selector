@@ -81,14 +81,19 @@ export default class ColormapSelector {
     }
 
     hide() {
-    if (!this.wrapper) return;
-    
-    // Clean up all tick labels
-    const allTickLabels = this.wrapper.querySelectorAll('[data-tick-canvas]');
-    allTickLabels.forEach(label => label.remove());
-    
-    this.wrapper.style.display = 'none';
-}
+        if (!this.wrapper) return;
+
+        this._activePointerCleanup?.();
+        this._activePointerCleanup = null;
+        this.state.activeDrag = { type: null, element: null, pointId: null, offsets: null };
+        this.isDragging = false;
+        const allTickLabels = this.wrapper.querySelectorAll('[data-tick-canvas]');
+        allTickLabels.forEach(label => label.remove());
+        this.wrapper.inert = true;
+        this.wrapper.setAttribute('aria-hidden', 'true');
+        this.wrapper.style.pointerEvents = 'none';
+        this.wrapper.style.display = 'none';
+    }
 
     getElement() {
         // Returns the main DOM element so it can be appended to the page
@@ -115,6 +120,9 @@ export default class ColormapSelector {
     show(x, y, initialState = null) {
         if (!this.wrapper) return;
 
+        this.wrapper.inert = false;
+        this.wrapper.removeAttribute('aria-hidden');
+        this.wrapper.style.pointerEvents = 'auto';
         this.wrapper.style.visibility = 'hidden';
         this.wrapper.style.display = 'block';
 
@@ -544,6 +552,9 @@ createCubicButtonIcon() {
     };
 
     this.wrapper = createEl('div', { id: 'colormap-selector-wrapper' });
+    this.wrapper.inert = true;
+    this.wrapper.setAttribute('aria-hidden', 'true');
+    this.wrapper.style.pointerEvents = 'none';
     this.wrapper.style.display = 'none';
     this.wrapper.setAttribute('role', 'dialog');
     this.wrapper.setAttribute('aria-label', 'Colormap editor');
@@ -1558,6 +1569,9 @@ setupCanvases() {
     };
 
     const cleanupPointer = () => {
+        if (canvas.hasPointerCapture?.(pointerId)) {
+            canvas.releasePointerCapture?.(pointerId);
+        }
         document.removeEventListener('pointermove', onMove);
         document.removeEventListener('pointerup', onEnd);
         document.removeEventListener('pointercancel', onEnd);

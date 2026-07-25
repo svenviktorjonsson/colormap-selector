@@ -34,8 +34,9 @@ test('initializes, handles a touch pointer, and destroys owned resources', () =>
     globalThis[name] = value;
   });
 
-  const context = new Proxy({}, {
-    get(_target, property) {
+  const createContext = (canvas) => new Proxy({ canvas }, {
+    get(target, property) {
+      if (property in target) return target[property];
       if (property === 'createLinearGradient') return () => ({ addColorStop() {} });
       if (property === 'measureText') return () => ({ width: 10 });
       if (property === 'getImageData') return () => ({ data: new Uint8ClampedArray(4) });
@@ -45,7 +46,9 @@ test('initializes, handles a touch pointer, and destroys owned resources', () =>
       return true;
     }
   });
-  dom.window.HTMLCanvasElement.prototype.getContext = () => context;
+  dom.window.HTMLCanvasElement.prototype.getContext = function getContext() {
+    return createContext(this);
+  };
   dom.window.HTMLCanvasElement.prototype.getBoundingClientRect = () => ({
     left: 0,
     top: 0,
@@ -62,6 +65,14 @@ test('initializes, handles a touch pointer, and destroys owned resources', () =>
     dom.window.document.body.append(element);
     assert.ok(element.querySelector('.colormap-selector-viewport'));
     assert.equal(element.querySelectorAll('.colormap-selector-page-button').length, 3);
+    assert.equal(element.inert, true);
+    assert.equal(element.getAttribute('aria-hidden'), 'true');
+    assert.equal(element.style.pointerEvents, 'none');
+
+    selector.show();
+    assert.equal(element.inert, false);
+    assert.equal(element.hasAttribute('aria-hidden'), false);
+    assert.equal(element.style.pointerEvents, 'auto');
 
     const surface = element.querySelector('#hs-nodes-container');
     surface.dispatchEvent(pointerEvent(dom.window, 'pointerdown', {
@@ -73,6 +84,13 @@ test('initializes, handles a touch pointer, and destroys owned resources', () =>
       clientY: 100
     }));
     assert.equal(selector.state.activeDrag.type, 'hs');
+
+    selector.hide();
+    assert.equal(selector.state.activeDrag.type, null);
+    assert.equal(element.inert, true);
+    assert.equal(element.getAttribute('aria-hidden'), 'true');
+    assert.equal(element.style.pointerEvents, 'none');
+    assert.equal(element.style.display, 'none');
 
     dom.window.document.dispatchEvent(pointerEvent(dom.window, 'pointerup', {
       pointerId: 7,
