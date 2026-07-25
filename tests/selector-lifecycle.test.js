@@ -73,6 +73,16 @@ test('initializes, handles a touch pointer, and destroys owned resources', () =>
     assert.equal(element.inert, false);
     assert.equal(element.hasAttribute('aria-hidden'), false);
     assert.equal(element.style.pointerEvents, 'auto');
+    selector.drawAll();
+
+    for (const type of ['lightness', 'alpha']) {
+      const labels = element.querySelectorAll(`[data-tick-canvas="${type}"]`);
+      assert.ok(labels.length > 0);
+      labels.forEach((label) => {
+        assert.equal(label.parentElement?.classList.contains('canvas-container'), true);
+        assert.equal(label.closest('.preset-wrapper')?.id, `${type}-wrapper`);
+      });
+    }
 
     const surface = element.querySelector('#hs-nodes-container');
     surface.dispatchEvent(pointerEvent(dom.window, 'pointerdown', {

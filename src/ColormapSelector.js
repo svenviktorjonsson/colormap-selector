@@ -2860,7 +2860,12 @@ drawTicks(ctx, type) {
     const tickExpressions = ['0', '0.2', '0.4', '0.6', '0.8', '1'];
     
     const canvasRect = canvas.getBoundingClientRect();
-    const wrapperRect = this.wrapper.getBoundingClientRect();
+    const labelHost = canvas.closest('.canvas-container');
+    const labelHostRect = labelHost?.getBoundingClientRect();
+    if (!labelHost || !labelHostRect) {
+        ctx.restore();
+        return;
+    }
     
     for (let i = 0; i < tickValues.length; i++) {
         const value = tickValues[i];
@@ -2878,9 +2883,9 @@ drawTicks(ctx, type) {
             ctx.stroke();
         }
         
-        const labelX = canvasRect.left - wrapperRect.left + x;
-        const labelY = canvasRect.top - wrapperRect.top + validBottom + 8;
-        this.createKaTeXLabel(tickExpressions[i], labelX, labelY, 'bottom', canvas);
+        const labelX = canvasRect.left - labelHostRect.left + x;
+        const labelY = canvasRect.top - labelHostRect.top + validBottom + 8;
+        this.createKaTeXLabel(tickExpressions[i], labelX, labelY, 'bottom', canvas, labelHost);
     }
     
     for (let i = 0; i < tickValues.length; i++) {
@@ -2899,9 +2904,9 @@ drawTicks(ctx, type) {
             ctx.stroke();
         }
         
-        const labelX = canvasRect.left - wrapperRect.left + validLeft - 8;
-        const labelY = canvasRect.top - wrapperRect.top + y;
-        this.createKaTeXLabel(tickExpressions[i], labelX, labelY, 'left', canvas);
+        const labelX = canvasRect.left - labelHostRect.left + validLeft - 8;
+        const labelY = canvasRect.top - labelHostRect.top + y;
+        this.createKaTeXLabel(tickExpressions[i], labelX, labelY, 'left', canvas, labelHost);
     }
     
     ctx.restore();
@@ -2910,11 +2915,11 @@ drawTicks(ctx, type) {
 
 clearTickLabels(canvas) {
     // Remove existing tick labels for this canvas
-    const existingLabels = document.querySelectorAll(`[data-tick-canvas="${canvas.dataset.type}"]`);
+    const existingLabels = this.wrapper.querySelectorAll(`[data-tick-canvas="${canvas.dataset.type}"]`);
     existingLabels.forEach(label => label.remove());
 }
 
-createKaTeXLabel(expression, x, y, position, canvas) {
+createKaTeXLabel(expression, x, y, position, canvas, labelHost) {
     if (this.wrapper.style.display === 'none') {
         return;
     }
@@ -2949,7 +2954,7 @@ createKaTeXLabel(expression, x, y, position, canvas) {
         }
     }
     
-    this.wrapper.appendChild(div);
+    labelHost.appendChild(div);
 }
     
     drawAlphaElements() {
