@@ -13,8 +13,9 @@ A professional, standalone JavaScript component for creating and editing colorma
 - **Undo/Redo**: Full state history support (`Ctrl+Z` / `Ctrl+Y`).
 - **Preset Management**: Load standard scientific colormaps (Viridis, Jet, Magma) or save your own custom libraries.
 - **Import/Export**: Easily inject custom color palettes at startup or export user creations to JSON.
+- **Responsive Presentation**: Uses the same editor on desktop, tablet, and safe-area-aware phone layouts.
+- **Unified Input**: Pointer Events provide one interaction path for mouse, pen, and touch.
 - **Self-Contained**: Creates its own DOM elements and can be injected into any page as a popup.
-- **No Dependencies**: Written in pure JavaScript with no external libraries required.
 
 ## Installation
 
@@ -23,7 +24,7 @@ This package is designed to be installed directly from its GitHub repository usi
 In your project's terminal, run the following command:
 
 ```bash
-npm install github:svenviktorjonsson/colormap-selector
+npm install github:svenviktorjonsson/colormap-selector#v1.2.0
 ```
 
 ## Quick Start
@@ -52,6 +53,7 @@ Link the stylesheet and prepare a trigger element.
 
 ```javascript
 import ColormapSelector from 'colormap-selector';
+import 'colormap-selector/style.css';
 
 document.addEventListener('DOMContentLoaded', async () => {
     
@@ -188,6 +190,17 @@ Returns the main DOM element (`HTMLElement`).
 
 #### `getPresetsData()`
 Returns an object containing all custom colors and colormaps created by the user or loaded via constructor.
+
+#### `destroy()`
+Removes the editor, global keyboard/click listeners, active pointer listeners, and its resize observer. Call this when the consuming surface is unmounted.
+
+## Responsive behavior
+
+- Desktop uses a bounded popup that can be positioned with `show(x, y, state)`.
+- Tablet uses a safe-area-aware four-column workspace.
+- Phone uses a keyboard-height bottom sheet with three horizontally snapping pages: color space, lightness/alpha, and the paired presets/selection columns.
+- Page indicators are tappable, while native horizontal swiping works from non-canvas areas; canvases retain precise pointer editing.
+- Interactive canvases capture pointer input. The rest of the editor retains native vertical scrolling on touch devices.
 
 ### Events
 

@@ -42,6 +42,10 @@ export default class ColormapSelector {
         
         this.wrapper = null;
         this.elements = {};
+        this._resizeObserver = null;
+        this._activePointerCleanup = null;
+        this._boundDocumentClick = null;
+        this._boundDocumentKeyDown = null;
     }
 
     initialize() {
@@ -80,7 +84,7 @@ export default class ColormapSelector {
     if (!this.wrapper) return;
     
     // Clean up all tick labels
-    const allTickLabels = document.querySelectorAll('[data-tick-canvas]');
+    const allTickLabels = this.wrapper.querySelectorAll('[data-tick-canvas]');
     allTickLabels.forEach(label => label.remove());
     
     this.wrapper.style.display = 'none';
@@ -91,12 +95,28 @@ export default class ColormapSelector {
         return this.wrapper;
     }
 
+    destroy() {
+        this._activePointerCleanup?.();
+        this._activePointerCleanup = null;
+        if (this._boundDocumentClick) {
+            document.removeEventListener('click', this._boundDocumentClick);
+        }
+        if (this._boundDocumentKeyDown) {
+            document.removeEventListener('keydown', this._boundDocumentKeyDown);
+        }
+        this._resizeObserver?.disconnect();
+        this._resizeObserver = null;
+        this.wrapper?.remove();
+        this.wrapper = null;
+        this.elements = {};
+    }
+
 
     show(x, y, initialState = null) {
         if (!this.wrapper) return;
 
         this.wrapper.style.visibility = 'hidden';
-        this.wrapper.style.display = 'grid';
+        this.wrapper.style.display = 'block';
 
         requestAnimationFrame(() => {
             if (x != null && y != null) {
@@ -112,6 +132,8 @@ export default class ColormapSelector {
                 this.wrapper.style.right = '0.5rem';
             }
             this.wrapper.style.visibility = 'visible';
+            this.elements.mobileViewport.scrollLeft = 0;
+            this.updateMobilePage(0);
 
             // Reset state
             this.state.points = [];
@@ -522,12 +544,9 @@ createCubicButtonIcon() {
     };
 
     this.wrapper = createEl('div', { id: 'colormap-selector-wrapper' });
-    this.wrapper = createEl('div', { id: 'colormap-selector-wrapper' });
-    this.wrapper.style.cssText = `
-        position: absolute; display: none; z-index: 1000; background-color: #1a202c; 
-        padding: 0.5rem; border-radius: 0.5rem; box-shadow: 0 10px 25px rgba(0,0,0,0.3); 
-        bottom: 0.5rem; right: 0.5rem; width: 1100px; height: 50vh; min-height: 400px; min-width: 600px;
-    `;
+    this.wrapper.style.display = 'none';
+    this.wrapper.setAttribute('role', 'dialog');
+    this.wrapper.setAttribute('aria-label', 'Colormap editor');
 
     this.elements.hsBgCanvas = createEl('canvas', { id: 'hs-bg-canvas' });
     this.elements.lightnessBgCanvas = createEl('canvas', { id: 'lightness-bg-canvas' });
@@ -654,8 +673,42 @@ createCubicButtonIcon() {
     this.elements.modalOverlay.append(modalDialog);
     this.elements.contextMenu = createEl('div', { id: 'context-menu', className: 'context-menu hidden' });
 
-    this.wrapper.className = 'color-editor-layout';
-    this.wrapper.append(hsPane, lightnessPane, this.elements.colorsPresetsWrapper, selectedColorPane, alphaPane, this.elements.colormapsPresetsWrapper, colormapPreviewPane, this.elements.modalOverlay, this.elements.contextMenu);
+    this.elements.mobileViewport = createEl('div', { className: 'colormap-selector-viewport' });
+    this.elements.layout = createEl('div', { className: 'color-editor-layout' });
+    this.elements.layout.append(
+        hsPane,
+        lightnessPane,
+        this.elements.colorsPresetsWrapper,
+        selectedColorPane,
+        alphaPane,
+        this.elements.colormapsPresetsWrapper,
+        colormapPreviewPane
+    );
+    this.elements.mobileViewport.append(this.elements.layout);
+
+    this.elements.mobilePager = createEl('div', {
+        className: 'colormap-selector-pager'
+    });
+    this.elements.mobilePager.setAttribute('role', 'tablist');
+    this.elements.mobilePager.setAttribute('aria-label', 'Colormap editor pages');
+    this.elements.mobilePageButtons = ['Color space', 'Lightness and alpha', 'Presets and selection'].map((label, page) => {
+        const button = createEl('button', {
+            className: 'colormap-selector-page-button',
+            type: 'button'
+        });
+        button.setAttribute('role', 'tab');
+        button.setAttribute('aria-label', label);
+        button.dataset.page = String(page);
+        this.elements.mobilePager.append(button);
+        return button;
+    });
+
+    this.wrapper.append(
+        this.elements.mobileViewport,
+        this.elements.mobilePager,
+        this.elements.modalOverlay,
+        this.elements.contextMenu
+    );
     
     this.createInteractiveCanvas(hsNodesContainer, 'hs');
     this.createInteractiveCanvas(lightnessNodesContainer, 'lightness');
@@ -688,6 +741,9 @@ createCubicButtonIcon() {
 }
 
 _handleDragStart(e) {
+    if (e.pointerType !== 'mouse' || e.button !== 0) {
+        return;
+    }
     if (e.target.closest('button, canvas, input, .preset-item')) {
         return;
     }
@@ -698,16 +754,26 @@ _handleDragStart(e) {
     this.dragStartY = e.clientY;
     this.initialLeft = this.wrapper.offsetLeft;
     this.initialTop = this.wrapper.offsetTop;
+    this._dragPointerId = e.pointerId;
+    this.wrapper.setPointerCapture?.(e.pointerId);
 
     this._boundDragMove = this._handleDragMove.bind(this);
     this._boundDragEnd = this._handleDragEnd.bind(this);
 
-    document.addEventListener('mousemove', this._boundDragMove);
-    document.addEventListener('mouseup', this._boundDragEnd, { once: true });
+    document.addEventListener('pointermove', this._boundDragMove);
+    document.addEventListener('pointerup', this._boundDragEnd);
+    document.addEventListener('pointercancel', this._boundDragEnd);
+    this._activePointerCleanup = () => {
+        document.removeEventListener('pointermove', this._boundDragMove);
+        document.removeEventListener('pointerup', this._boundDragEnd);
+        document.removeEventListener('pointercancel', this._boundDragEnd);
+        this.isDragging = false;
+        this._dragPointerId = null;
+    };
 }
 
 _handleDragMove(e) {
-    if (!this.isDragging) return;
+    if (!this.isDragging || e.pointerId !== this._dragPointerId) return;
     e.preventDefault();
 
     const dx = e.clientX - this.dragStartX;
@@ -723,12 +789,15 @@ _handleDragMove(e) {
 }
 
 _handleDragEnd(e) {
+    if (e.pointerId !== this._dragPointerId) return;
     this.isDragging = false;
-    document.removeEventListener('mousemove', this._boundDragMove);
+    this.wrapper.releasePointerCapture?.(e.pointerId);
+    this._activePointerCleanup?.();
+    this._activePointerCleanup = null;
 }
 
     setupEventListeners() {
-    this.wrapper.addEventListener('mousedown', this._handleDragStart.bind(this));
+    this.wrapper.addEventListener('pointerdown', this._handleDragStart.bind(this));
 
     this.elements.tabRgbCube.addEventListener('click', () => this.setColorSpace('RGB_CUBE'));
     this.elements.tabHslCone.addEventListener('click', () => this.setColorSpace('HSL_DI_CONE'));
@@ -743,21 +812,40 @@ _handleDragEnd(e) {
         }
     });
 
-    document.addEventListener('click', () => this.hideContextMenu());
+    this._boundDocumentClick = () => this.hideContextMenu();
+    document.addEventListener('click', this._boundDocumentClick);
 
-    const resizeObserver = new ResizeObserver(() => this.setupCanvases());
-    resizeObserver.observe(this.wrapper);
+    this._resizeObserver = new ResizeObserver(() => this.setupCanvases());
+    this._resizeObserver.observe(this.wrapper);
 
     Object.values(this.elements.interactiveCanvases).forEach(canvas => {
         canvas.addEventListener('mouseenter', () => { this.state.isMouseInCanvas = true; });
         canvas.addEventListener('mouseleave', () => { this.state.isMouseInCanvas = false; });
     });
 
-    this.elements.hsNodesContainer.addEventListener('mousedown', (e) => this.handleMouseDown(e, 'hs'));
-    this.elements.lightnessNodesContainer.addEventListener('mousedown', (e) => this.handleMouseDown(e, 'lightness'));
-    this.elements.alphaNodesContainer.addEventListener('mousedown', (e) => this.handleMouseDown(e, 'alpha'));
+    this.elements.hsNodesContainer.addEventListener('pointerdown', (e) => this.handlePointerDown(e, 'hs'));
+    this.elements.lightnessNodesContainer.addEventListener('pointerdown', (e) => this.handlePointerDown(e, 'lightness'));
+    this.elements.alphaNodesContainer.addEventListener('pointerdown', (e) => this.handlePointerDown(e, 'alpha'));
 
-    document.addEventListener('keydown', (e) => this.handleKeyDown(e));
+    this._boundDocumentKeyDown = (e) => this.handleKeyDown(e);
+    document.addEventListener('keydown', this._boundDocumentKeyDown);
+
+    this.elements.mobilePageButtons.forEach((button, page) => {
+        button.addEventListener('click', () => {
+            this.elements.mobileViewport.scrollTo({
+                left: page * this.elements.mobileViewport.clientWidth,
+                behavior: 'smooth'
+            });
+            this.updateMobilePage(page);
+        });
+    });
+    this.elements.mobileViewport.addEventListener('scroll', () => {
+        const width = this.elements.mobileViewport.clientWidth;
+        if (width > 0) {
+            this.updateMobilePage(Math.round(this.elements.mobileViewport.scrollLeft / width));
+        }
+    }, { passive: true });
+    this.updateMobilePage(0);
 
     this.elements.lightnessInput.addEventListener('change', (e) => this.handleInputChange(e, 'lightness'));
     this.elements.alphaInput.addEventListener('change', (e) => this.handleInputChange(e, 'alpha'));
@@ -1140,7 +1228,7 @@ setInterpolationMode(mode) {
         const { modalOverlay, modalTitle, modalInputContainer, modalInput, modalButtons } = this.elements;
 
         // Hide all KaTeX labels when showing modal
-        const allTickLabels = document.querySelectorAll('[data-tick-canvas]');
+        const allTickLabels = this.wrapper.querySelectorAll('[data-tick-canvas]');
         allTickLabels.forEach(label => label.style.display = 'none');
 
         modalTitle.textContent = title;
@@ -1353,14 +1441,16 @@ setupCanvases() {
             this.drawAll();
         }
     
-        handleMouseDown(e, type) {
-    if (e.button === 2) return;
+        handlePointerDown(e, type) {
+    if (e.button === 2 || e.isPrimary === false) return;
     e.preventDefault();
     e.stopPropagation();
 
     const now = Date.now();
     const canvas = this.elements.interactiveCanvases[type];
     if (!canvas) return;
+    const pointerId = e.pointerId;
+    canvas.setPointerCapture?.(pointerId);
 
     const rect = canvas.getBoundingClientRect();
     const scaleX = canvas.width / rect.width;
@@ -1442,6 +1532,7 @@ setupCanvases() {
     this.drawAll();
 
     const onMove = (moveEvent) => {
+        if (moveEvent.pointerId !== pointerId) return;
         const currentX = (moveEvent.clientX - rect.left) * scaleX;
         const currentY = (moveEvent.clientY - rect.top) * scaleY;
         const dist = Math.sqrt((currentX - startPos.x)**2 + (currentY - startPos.y)**2);
@@ -1457,17 +1548,38 @@ setupCanvases() {
     };
 
     const onEnd = (upEvent) => {
-        document.removeEventListener('mousemove', onMove);
-        document.removeEventListener('mouseup', onEnd);
+        if (upEvent.pointerId !== pointerId) return;
+        canvas.releasePointerCapture?.(pointerId);
+        cleanupPointer();
         if (!hasDragged) {
             this.handleClick(x, y, type, hitPoint, upEvent);
         }
         this.state.activeDrag = { type: null, element: null, pointId: null, offsets: null };
     };
 
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onEnd);
+    const cleanupPointer = () => {
+        document.removeEventListener('pointermove', onMove);
+        document.removeEventListener('pointerup', onEnd);
+        document.removeEventListener('pointercancel', onEnd);
+        if (this._activePointerCleanup === cleanupPointer) {
+            this._activePointerCleanup = null;
+        }
+    };
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onEnd);
+    document.addEventListener('pointercancel', onEnd);
+    this._activePointerCleanup = cleanupPointer;
 }
+
+    updateMobilePage(page) {
+        const activePage = Math.max(0, Math.min(2, page));
+        this.elements.mobilePageButtons?.forEach((button, index) => {
+            const active = index === activePage;
+            button.classList.toggle('is-active', active);
+            button.setAttribute('aria-selected', String(active));
+            button.tabIndex = active ? 0 : -1;
+        });
+    }
     
         handleClick(x, y, type, hitPoint, e) {
   const { shiftKey, ctrlKey, metaKey } = e;

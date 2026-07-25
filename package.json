@@ -1,10 +1,24 @@
 {
   "name": "colormap-selector",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "description": "A popup colormap and color gradient editor component.",
-  "main": "ColormapSelector.js",
+  "main": "./src/ColormapSelector.js",
+  "exports": {
+    ".": "./src/ColormapSelector.js",
+    "./style.css": "./dist/style.css"
+  },
+  "files": [
+    "src",
+    "dist",
+    "README.md"
+  ],
+  "type": "module",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "npm run build:css",
+    "build:css": "node scripts/build-css.mjs",
+    "dev": "vite --host 127.0.0.1",
+    "pretest": "npm run build:css",
+    "test": "node --test tests/*.test.js"
   },
   "repository": {
     "type": "git",
@@ -22,5 +36,11 @@
   "license": "MIT",
   "dependencies": {
     "katex": "^0.16.22"
+  },
+  "devDependencies": {
+    "jsdom": "^29.1.1",
+    "postcss": "^8.5.23",
+    "postcss-prefix-selector": "^2.1.1",
+    "vite": "^8.1.5"
   }
 }
