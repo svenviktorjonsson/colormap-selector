@@ -44,6 +44,7 @@ export default class ColormapSelector {
         this.elements = {};
         this._resizeObserver = null;
         this._activePointerCleanup = null;
+        this._mobileSwipeCleanup = null;
         this._boundDocumentClick = null;
         this._boundDocumentKeyDown = null;
     }
@@ -85,6 +86,8 @@ export default class ColormapSelector {
 
         this._activePointerCleanup?.();
         this._activePointerCleanup = null;
+        this._mobileSwipeCleanup?.();
+        this._mobileSwipeCleanup = null;
         this.state.activeDrag = { type: null, element: null, pointId: null, offsets: null };
         this.isDragging = false;
         const allTickLabels = this.wrapper.querySelectorAll('[data-tick-canvas]');
@@ -103,6 +106,8 @@ export default class ColormapSelector {
     destroy() {
         this._activePointerCleanup?.();
         this._activePointerCleanup = null;
+        this._mobileSwipeCleanup?.();
+        this._mobileSwipeCleanup = null;
         if (this._boundDocumentClick) {
             document.removeEventListener('click', this._boundDocumentClick);
         }
@@ -856,6 +861,11 @@ _handleDragEnd(e) {
             this.updateMobilePage(Math.round(this.elements.mobileViewport.scrollLeft / width));
         }
     }, { passive: true });
+    this.elements.mobileViewport.addEventListener(
+        'pointerdown',
+        (event) => this.beginMobileSwipe(event),
+        { capture: true }
+    );
     this.updateMobilePage(0);
 
     this.elements.lightnessInput.addEventListener('change', (e) => this.handleInputChange(e, 'lightness'));
@@ -1594,6 +1604,85 @@ setupCanvases() {
             button.tabIndex = active ? 0 : -1;
         });
     }
+
+    beginMobileSwipe(event) {
+        if (event.pointerType !== 'touch' || event.isPrimary === false) return;
+        const isMobile = typeof window.matchMedia === 'function'
+            ? window.matchMedia('(max-width: 767px)').matches
+            : window.innerWidth <= 767;
+        if (!isMobile) return;
+
+        const viewport = this.elements.mobileViewport;
+        const width = viewport.clientWidth;
+        if (width <= 0) return;
+
+        this._mobileSwipeCleanup?.();
+        const start = {
+            x: event.clientX,
+            y: event.clientY,
+            scrollLeft: viewport.scrollLeft,
+            page: Math.round(viewport.scrollLeft / width)
+        };
+        let claimed = false;
+
+        const scrollTo = (left, behavior = 'auto') => {
+            if (typeof viewport.scrollTo === 'function') {
+                viewport.scrollTo({ left, behavior });
+            } else {
+                viewport.scrollLeft = left;
+            }
+        };
+
+        const onMove = (moveEvent) => {
+            if (moveEvent.pointerId !== event.pointerId) return;
+            const deltaX = moveEvent.clientX - start.x;
+            const deltaY = moveEvent.clientY - start.y;
+
+            if (!claimed) {
+                if (Math.abs(deltaX) < 12 || Math.abs(deltaX) <= Math.abs(deltaY)) return;
+                claimed = true;
+                this._activePointerCleanup?.();
+                this._activePointerCleanup = null;
+                this.state.activeDrag = {
+                    type: null,
+                    element: null,
+                    pointId: null,
+                    offsets: null
+                };
+            }
+
+            moveEvent.preventDefault();
+            scrollTo(start.scrollLeft - deltaX);
+        };
+
+        const onEnd = (endEvent) => {
+            if (endEvent.pointerId !== event.pointerId) return;
+            const deltaX = endEvent.clientX - start.x;
+            const threshold = Math.min(64, width * 0.2);
+            let page = start.page;
+            if (claimed && Math.abs(deltaX) >= threshold) {
+                page += deltaX < 0 ? 1 : -1;
+            }
+            page = Math.max(0, Math.min(2, page));
+            scrollTo(page * width, 'smooth');
+            this.updateMobilePage(page);
+            this._mobileSwipeCleanup?.();
+            this._mobileSwipeCleanup = null;
+            requestAnimationFrame(() => {
+                if (this.wrapper && !this.wrapper.inert) this.setupCanvases();
+            });
+        };
+
+        const cleanup = () => {
+            document.removeEventListener('pointermove', onMove, true);
+            document.removeEventListener('pointerup', onEnd, true);
+            document.removeEventListener('pointercancel', onEnd, true);
+        };
+        document.addEventListener('pointermove', onMove, { capture: true, passive: false });
+        document.addEventListener('pointerup', onEnd, true);
+        document.addEventListener('pointercancel', onEnd, true);
+        this._mobileSwipeCleanup = cleanup;
+    }
     
         handleClick(x, y, type, hitPoint, e) {
   const { shiftKey, ctrlKey, metaKey } = e;
@@ -2015,6 +2104,15 @@ setupCanvases() {
     // Create imageData only for the valid area
     const imageData = ctx.createImageData(clipWidth, clipHeight);
     const data = imageData.data;
+    const checkerColors = [C.COLOR_CHECKER_LIGHT, C.COLOR_CHECKER_DARK].map((color) => {
+        const value = Number.parseInt(color.slice(1), 16);
+        return {
+            r: (value >> 16) & 255,
+            g: (value >> 8) & 255,
+            b: value & 255
+        };
+    });
+    const colorAlpha = Math.max(0, Math.min(1, viewAlpha));
 
     for (let j = 0; j < clipHeight; j++) {
         for (let i = 0; i < clipWidth; i++) {
@@ -2024,24 +2122,24 @@ setupCanvases() {
             const av = (canvasY - this.state.transform.offsetY) / this.state.transform.scale;
             const {r, g, b} = this.abstractToRgb(au, av, viewLightness);
             const index = (j * clipWidth + i) * 4;
+            const checkerRow = Math.floor(j / actualSquareH);
+            const checkerColumn = Math.floor(i / actualSquareW);
+            const checker = checkerColors[(checkerRow + checkerColumn) % 2];
 
             if (this.isValidColor(r, g, b)) {
-                data[index] = Math.round(r * 255);
-                data[index + 1] = Math.round(g * 255);
-                data[index + 2] = Math.round(b * 255);
-                data[index + 3] = 255;
+                data[index] = Math.round(r * 255 * colorAlpha + checker.r * (1 - colorAlpha));
+                data[index + 1] = Math.round(g * 255 * colorAlpha + checker.g * (1 - colorAlpha));
+                data[index + 2] = Math.round(b * 255 * colorAlpha + checker.b * (1 - colorAlpha));
+            } else {
+                data[index] = checker.r;
+                data[index + 1] = checker.g;
+                data[index + 2] = checker.b;
             }
+            data[index + 3] = 255;
         }
     }
 
-    const tempCanvas = document.createElement('canvas');
-    tempCanvas.width = clipWidth;
-    tempCanvas.height = clipHeight;
-    const tempCtx = tempCanvas.getContext('2d');
-    tempCtx.putImageData(imageData, 0, 0);
-    ctx.globalAlpha = viewAlpha;
-    ctx.drawImage(tempCanvas, clipX, clipY);
-    ctx.globalAlpha = 1.0;
+    ctx.putImageData(imageData, clipX, clipY);
 }
 
     
