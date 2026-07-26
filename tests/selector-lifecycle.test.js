@@ -300,7 +300,11 @@ test('the visible RGB Cube and HSL Di-Cone canvas receives painted color pixels'
     const selector = new ColormapSelector();
     selector.initialize();
     dom.window.document.body.append(selector.getElement());
-    selector.show();
+    selector.show(null, null, {
+      type: 'color',
+      color: [255, 255, 255],
+      alpha: 1
+    });
 
     const canvas = selector.getElement().querySelector('#hs-bg-canvas');
     const hasOpaqueColor = (painted) => {

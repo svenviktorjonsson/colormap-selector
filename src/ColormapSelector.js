@@ -2028,6 +2028,9 @@ setupCanvases() {
 
         drawHSSlice() {
     const { viewLightness, viewAlpha, colorSpace } = this.state;
+    const displayLightness = viewLightness <= 0.01 || viewLightness >= 0.99
+        ? 0.5
+        : viewLightness;
     const width = this.elements.hsBgCanvas.width;
     const height = this.elements.hsBgCanvas.height;
 
@@ -2088,12 +2091,12 @@ setupCanvases() {
 
     // Special handling for HSL Di-Cone at lightness extremes
     if (colorSpace === 'HSL_DI_CONE') {
-        const radiusAtL = 1 - Math.abs(2 * viewLightness - 1);
+        const radiusAtL = 1 - Math.abs(2 * displayLightness - 1);
         if (radiusAtL < 0.01) {
             // At lightness 0 or 1, draw a single pixel at center
             const centerX = width / 2;
             const centerY = height / 2;
-            const grayValue = viewLightness < 0.5 ? 0 : 255;
+            const grayValue = displayLightness < 0.5 ? 0 : 255;
             
             ctx.fillStyle = `rgba(${grayValue}, ${grayValue}, ${grayValue}, ${viewAlpha})`;
             ctx.fillRect(Math.floor(centerX), Math.floor(centerY), 1, 1);
@@ -2120,7 +2123,7 @@ setupCanvases() {
             const canvasY = clipY + j;
             const au = (canvasX - this.state.transform.offsetX) / this.state.transform.scale;
             const av = (canvasY - this.state.transform.offsetY) / this.state.transform.scale;
-            const {r, g, b} = this.abstractToRgb(au, av, viewLightness);
+            const {r, g, b} = this.abstractToRgb(au, av, displayLightness);
             const index = (j * clipWidth + i) * 4;
             const checkerRow = Math.floor(j / actualSquareH);
             const checkerColumn = Math.floor(i / actualSquareW);
