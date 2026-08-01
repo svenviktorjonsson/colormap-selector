@@ -43,4 +43,6 @@ test('scopes interaction styles and provides tablet and three-page phone present
   assert.match(styles, /height:\s*clamp\(300px,\s*50dvh,\s*420px\)/);
   assert.match(styles, /env\(safe-area-inset-bottom\)/);
   assert.match(styles, /min-height:\s*44px/);
+  assert.match(styles, /#colormap-selector-wrapper #current-colormap-section\s*\{[^}]*overflow-y:\s*auto/);
+  assert.match(styles, /#colormap-selector-wrapper #current-colormap-section\s*\{[^}]*touch-action:\s*pan-y/);
 });

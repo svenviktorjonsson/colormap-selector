@@ -706,7 +706,20 @@
 
     #colormap-selector-wrapper #colormaps-presets-wrapper { grid-column: 5; grid-row: 2; }
     #colormap-selector-wrapper #selected-color-section { grid-column: 6; grid-row: 1; overflow-y: auto; }
-    #colormap-selector-wrapper #current-colormap-section { grid-column: 6; grid-row: 2; }
+    #colormap-selector-wrapper #current-colormap-section {
+        grid-column: 6;
+        grid-row: 2;
+        overflow-x: hidden;
+        overflow-y: auto;
+        overscroll-behavior-y: contain;
+        touch-action: pan-y;
+        scrollbar-width: thin;
+    }
+
+    #colormap-selector-wrapper #current-colormap-section .button-container {
+        flex: 0 0 auto;
+        padding-bottom: max(0.375rem, env(safe-area-inset-bottom));
+    }
 
     #colormap-selector-wrapper .colormap-selector-pager {
         position: absolute;

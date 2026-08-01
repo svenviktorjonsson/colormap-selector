@@ -1,6 +1,6 @@
 {
   "name": "colormap-selector",
-  "version": "1.2.4",
+  "version": "1.2.5",
   "description": "A popup colormap and color gradient editor component.",
   "main": "./src/ColormapSelector.js",
   "exports": {
