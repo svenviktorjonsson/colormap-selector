@@ -665,7 +665,7 @@
         overscroll-behavior-x: contain;
         scroll-snap-type: x mandatory;
         scrollbar-width: none;
-        touch-action: pan-x;
+        touch-action: pan-x pan-y;
     }
 
     #colormap-selector-wrapper .colormap-selector-viewport::-webkit-scrollbar {
@@ -718,7 +718,7 @@
 
     #colormap-selector-wrapper #current-colormap-section .button-container {
         flex: 0 0 auto;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
+        grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 0.125rem;
         margin: 0.25rem;
         padding-bottom: max(0.25rem, env(safe-area-inset-bottom));
@@ -729,8 +729,8 @@
     #colormap-selector-wrapper #current-colormap-section .close-button,
     #colormap-selector-wrapper #current-colormap-section .select-button {
         min-width: 0;
-        padding-inline: 0.125rem;
-        font-size: 0.625rem;
+        padding-inline: 0.25rem;
+        font-size: 0.75rem;
     }
 
     #colormap-selector-wrapper .colormap-selector-pager {
