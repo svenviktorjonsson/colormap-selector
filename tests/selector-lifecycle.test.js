@@ -74,6 +74,28 @@ test('initializes, handles a touch pointer, and destroys owned resources', () =>
     assert.equal(element.hasAttribute('aria-hidden'), false);
     assert.equal(element.style.pointerEvents, 'auto');
     selector.drawAll();
+    let selectedColormap = null;
+    element.addEventListener('select', (event) => {
+      selectedColormap = event.detail;
+    });
+    selector.show(null, null, {
+      type: 'colormap',
+      id: 'rgb-master',
+      controlPoints: [
+        { pos: 0, color: [255, 0, 0], alpha: 1, order: 1 },
+        { pos: 1, color: [0, 0, 255], alpha: 0.75, order: 3 }
+      ],
+      isCyclic: true
+    });
+    element.querySelector('#select-button').click();
+    assert.equal(selectedColormap.id, 'rgb-master');
+    assert.equal(selectedColormap.isCyclic, true);
+    assert.deepEqual(selectedColormap.controlPoints.map(({ pos, color, alpha, order }) => ({
+      pos, color, alpha, order
+    })), [
+      { pos: 0, color: [255, 0, 0], alpha: 1, order: 1 },
+      { pos: 1, color: [0, 0, 255], alpha: 0.75, order: 3 }
+    ]);
 
     for (const type of ['lightness', 'alpha']) {
       const labels = element.querySelectorAll(`[data-tick-canvas="${type}"]`);
@@ -180,6 +202,15 @@ test('a horizontal touch swipe moves to the next mobile page', () => {
     viewport.scrollTo = ({ left }) => {
       viewport.scrollLeft = left;
     };
+
+    selector.show();
+    assert.equal(viewport.scrollLeft, 640);
+    assert.equal(
+      element.querySelector('.colormap-selector-page-button.is-active')?.dataset.page,
+      '2'
+    );
+    viewport.scrollLeft = 0;
+    selector.updateMobilePage(0);
 
     const swipe = (target, pointerId, startX, endX) => {
       target.dispatchEvent(pointerEvent(dom.window, 'pointerdown', {

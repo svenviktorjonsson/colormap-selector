@@ -718,7 +718,19 @@
 
     #colormap-selector-wrapper #current-colormap-section .button-container {
         flex: 0 0 auto;
-        padding-bottom: max(0.375rem, env(safe-area-inset-bottom));
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 0.125rem;
+        margin: 0.25rem;
+        padding-bottom: max(0.25rem, env(safe-area-inset-bottom));
+    }
+
+    #colormap-selector-wrapper #current-colormap-section .reverse-button,
+    #colormap-selector-wrapper #current-colormap-section .cycle-button,
+    #colormap-selector-wrapper #current-colormap-section .close-button,
+    #colormap-selector-wrapper #current-colormap-section .select-button {
+        min-width: 0;
+        padding-inline: 0.125rem;
+        font-size: 0.625rem;
     }
 
     #colormap-selector-wrapper .colormap-selector-pager {

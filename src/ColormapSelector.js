@@ -3,6 +3,8 @@ import * as C from './constants.js';
 import namedColorsData from './namedColors.js';
 import namedColormapsData from './namedColormaps.js';
 
+const MOBILE_MASTERS_PAGE = 2;
+
 export default class ColormapSelector {
     constructor(customColors = {}, customColormaps = {}) {
         this.state = {
@@ -145,8 +147,10 @@ export default class ColormapSelector {
                 this.wrapper.style.right = '0.5rem';
             }
             this.wrapper.style.visibility = 'visible';
-            this.elements.mobileViewport.scrollLeft = 0;
-            this.updateMobilePage(0);
+            const initialPage = window.innerWidth <= 767 ? MOBILE_MASTERS_PAGE : 0;
+            this.elements.mobileViewport.scrollLeft =
+                initialPage * this.elements.mobileViewport.clientWidth;
+            this.updateMobilePage(initialPage);
 
             // Reset state
             this.state.points = [];

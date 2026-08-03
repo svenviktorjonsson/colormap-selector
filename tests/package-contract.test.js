@@ -45,4 +45,7 @@ test('scopes interaction styles and provides tablet and three-page phone present
   assert.match(styles, /min-height:\s*44px/);
   assert.match(styles, /#colormap-selector-wrapper #current-colormap-section\s*\{[^}]*overflow-y:\s*auto/);
   assert.match(styles, /#colormap-selector-wrapper #current-colormap-section\s*\{[^}]*touch-action:\s*pan-y/);
+  assert.match(styles, /#current-colormap-section \.button-container\s*\{[^}]*grid-template-columns:\s*repeat\(4/);
+  assert.match(source, /const MOBILE_MASTERS_PAGE = 2/);
+  assert.match(source, /initialPage \* this\.elements\.mobileViewport\.clientWidth/);
 });
